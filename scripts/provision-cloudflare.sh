@@ -6,7 +6,13 @@ SECRET_DIR="$HOME/.jlr-secrets"
 test -f "$SECRET_DIR/private.pem" || { echo "Missing local private key"; exit 1; }
 test -f "$SECRET_DIR/tokens.json" || { echo "Missing authorized tokens.json"; exit 1; }
 echo "Authenticate Wrangler to the same Cloudflare account as garage-monitor."
-npx --yes wrangler@latest whoami || npx --yes wrangler@latest login
+if ! npx --yes wrangler@latest whoami 2>&1 | grep -q 'Account ID'; then
+  echo "Cloudflare login required. Execute: npx --yes wrangler@latest login --device --browser=false"
+  echo "Then re-run this script after successful login."
+  exit 1
+fi
+echo "Cloudflare authentication detected; verify the account shown by Wrangler:"
+npx --yes wrangler@latest whoami
 echo "Uploading secrets to existing garage-monitor Worker..."
 npx --yes wrangler@latest secret put JLR_PRIVATE_KEY --name garage-monitor < "$SECRET_DIR/private.pem"
 node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.env.HOME+"/.jlr-secrets/device-flow.json","utf8")).clientId)' | npx --yes wrangler@latest secret put JLR_CLIENT_ID --name garage-monitor
