@@ -1,0 +1,10 @@
+{
+  "name": "garage-monitor-mobile-gateway",
+  "main": "src/index.js",
+  "compatibility_date": "2026-11-12",
+  "workers_dev": false,
+  "preview_urls": false,
+  "d1_databases": [
+    { "binding": "DB", "database_name": "garage-monitor", "database_id": "d30dd500-c685-4076-88b4-e352f67c7849" }
+  ]
+}
