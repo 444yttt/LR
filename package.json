@@ -1,0 +1,13 @@
+{
+  "name": "lr-vehicle-monitor",
+  "private": true,
+  "version": "0.1.0",
+  "description": "JLR Data Hub secure credential bootstrap and vehicle monitoring proof of concept",
+  "scripts": {
+    "keygen": "node scripts/generate-jlr-credentials.cjs",
+    "verify": "node scripts/verify-certificate.cjs"
+  },
+  "dependencies": {
+    "@peculiar/x509": "^1.14.0"
+  }
+}
