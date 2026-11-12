@@ -4,6 +4,7 @@ const fs=require('node:fs');
 const os=require('node:os');
 const path=require('node:path');
 const readline=require('node:readline/promises');
+const {refresh}=require('./refresh-token.cjs');
 const {stdin,stdout}=require('node:process');
 
 function jwt(key, header, claims) {
@@ -31,9 +32,10 @@ async function main(){
   if(!/^[A-HJ-NPR-Z0-9]{17}$/.test(vin))throw new Error('Invalid VIN format');
   const secretDir=path.join(os.homedir(),'.jlr-secrets');
   const key=fs.readFileSync(path.join(secretDir,'private.pem'),'utf8');
-  const tokens=JSON.parse(fs.readFileSync(path.join(secretDir,'tokens.json'),'utf8'));
+  const {tokens,refreshed}=await refresh();
+  if(refreshed)console.log('JLR access token refreshed automatically.');
   if(!tokens.access_token)throw new Error('Missing access token: complete Device Code flow first');
-  if(Date.now()>=tokens.expiresAt)throw new Error('Access token expired; refresh authorization before retrying');
+  if(Date.now()>=tokens.expiresAt)throw new Error('Access token expired and refresh failed; reauthorize.');
   const base='https://data.jlr-vcdp.com/v1/vehicles/'+encodeURIComponent(vin);
   const checks=[
     {name:'Vehicle metadata',url:base},
