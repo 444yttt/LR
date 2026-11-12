@@ -1,5 +1,6 @@
 // Request a JLR user code without printing or committing sensitive device_code or PKCE verifier.
 const crypto = require('node:crypto');
+const { signClientAssertion } = require('./jlr-auth.cjs');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -10,11 +11,14 @@ async function main() {
   const verifier = crypto.randomBytes(32).toString('base64url');
   const challenge = crypto.createHash('sha256').update(verifier).digest('base64url');
   const endpoint = 'https://auth.jlr-vcdp.com/realms/public/protocol/openid-connect/auth/device';
+  const assertion = signClientAssertion(clientId);
   const response = await fetch(endpoint, {
     method: 'POST',
     headers: { 'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
       client_id: clientId,
+      client_assertion_type: 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
+      client_assertion: assertion,
       response_type: 'device_code',
       code_challenge: challenge,
       code_challenge_method: 'S256',
