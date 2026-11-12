@@ -77,6 +77,36 @@ async function getJson(url,token,key){
     throw new Error('api_http_'+r.status);
   }
 }
+// Conservative signal mapping: missing/unsupported fields stay null, never inferred.
+function valNum(v,min,max){
+  const n=(typeof v==='number')?v:(typeof v?.value==='number'?v.value:null);
+  return Number.isFinite(n)&&n>=min&&n<=max?n:null;
+}
+function iso(v){
+  if(typeof v!=='string')return null;
+  const n=Date.parse(v);
+  return Number.isFinite(n)?new Date(n).toISOString():null;
+}
+function normaliseJlr(status,diagnostics,ev){
+  const vehicle=status?.Vehicle||status?.vehicle||{};
+  const power=vehicle?.Powertrain||vehicle?.powertrain||{};
+  const fuel=power?.FuelSystem||power?.fuelSystem||{};
+  const traction=ev?.Vehicle?.Powertrain?.TractionBattery || ev?.vehicle?.powertrain?.tractionBattery||{};
+  const rangeKm=valNum(vehicle?.Range ?? vehicle?.range ?? status?.range,0,2000);
+  const fuelPercent=valNum(fuel?.RelativeLevel ?? fuel?.Level ?? status?.fuelPercent,0,100);
+  const electricRangeKm=valNum(traction?.Range ?? ev?.electricRange,0,2000);
+  const soc=valNum(traction?.StateOfCharge?.Current ?? ev?.stateOfCharge,0,100);
+  const health=['good','attention-required','service-required'].includes(diagnostics?.overallHealth)?diagnostics.overallHealth:'unknown';
+  const dtcs=Array.isArray(diagnostics?.troubleCodes)?diagnostics.troubleCodes:null;
+  const activeDtc=dtcs?dtcs.filter(x=>x?.active===true).length:null;
+  const maintenance=Array.isArray(diagnostics?.maintenanceIndicators)?diagnostics.maintenanceIndicators:null;
+  const maintenanceDue=maintenance?maintenance.filter(x=>x?.status==='due-soon'||x?.status==='overdue').length:null;
+  return {
+    rangeKm,electricRangeKm,fuelPercent,soc,health,faultsCount:activeDtc,maintenanceDue,
+    statusUpdatedAt:iso(status?.timestamp||status?.lastUpdated),
+    healthUpdatedAt:iso(diagnostics?.lastUpdated)
+  };
+}
 function parseEnd(item){
   for(const field of ['endTime','endedAt','endDateTime','endTimestamp','arrivalTime']){
     const v=item?.[field];
@@ -117,6 +147,14 @@ async function collect(env){
       if(!items.length||data?.page?.last===true||(totalPages!==null&&p+1>=totalPages)||(items.length<20&&totalPages===null)){complete=true;break;}
     }
     if(!complete)throw new Error('pagination_incomplete');
+    // Optional probes: failure in one category must not suppress the verified journey result.
+    const base=ORIGIN+'/v1/vehicles/'+encodeURIComponent(env.JLR_VIN);
+    const [status,diagnostics,ev]=await Promise.all([
+      getJson(base+'/status',token.access_token,priv).catch(()=>null),
+      getJson(base+'/diagnostics',token.access_token,priv).catch(()=>null),
+      getJson(base+'/ev',token.access_token,priv).catch(()=>null)
+    ]);
+    const signals=normaliseJlr(status,diagnostics,ev);
     // Protect against missing data or stale API: never assert 'not driven' if there is no reliable journey end.
     if(latest===null)throw new Error('no_journey_end');
     const end=new Date(latest).toISOString();
@@ -128,6 +166,13 @@ async function collect(env){
     ON CONFLICT(vehicle_id) DO UPDATE SET fetched_at=excluded.fetched_at,source=excluded.source,last_drive_at=excluded.last_drive_at,
     last_drive_verified=excluded.last_drive_verified,data_status='fresh',error_code=NULL,updated_at=excluded.updated_at`)
       .bind('range-l460',now(),end,verified,now()).run();
+    await env.DB.prepare(`UPDATE snapshots SET range_km=?,electric_range_km=?,fuel_percent=?,soc_percent=?,
+      health_status=?,faults_count=?,maintenance_due_count=?,status_updated_at=?,health_updated_at=?,payload_json=?
+      WHERE vehicle_id='range-l460'`).bind(
+      signals.rangeKm,signals.electricRangeKm,signals.fuelPercent,signals.soc,signals.health,signals.faultsCount,
+      signals.maintenanceDue,signals.statusUpdatedAt,signals.healthUpdatedAt,
+      JSON.stringify({status_available:!!status,diagnostics_available:!!diagnostics,ev_available:!!ev})
+    ).run();
     await env.DB.prepare("UPDATE ingestion_runs SET status='complete',finished_at=?,page_count=?,journey_count=? WHERE id=?").bind(now(),pages,n,id).run();
     // Alerts are recorded only once after initial operator validation of source semantics.
     // Actual push delivery requires an explicit notifier integration; no silent claim of delivery.
@@ -156,7 +201,7 @@ export default {
       const result=await env.DB.prepare(`SELECT v.id,v.make,v.model,v.model_year,v.display_name,v.enabled,
       s.last_drive_at,s.last_drive_verified,s.fetched_at,s.data_status,s.range_km,s.electric_range_km,
       s.fuel_percent,s.soc_percent,s.battery_12v_voltage,s.health_status,s.faults_count,
-      s.odometer_km FROM vehicles v LEFT JOIN snapshots s ON s.vehicle_id=v.id ORDER BY v.created_at`).all();
+      s.odometer_km,s.status_updated_at,s.health_updated_at,s.maintenance_due_count FROM vehicles v LEFT JOIN snapshots s ON s.vehicle_id=v.id ORDER BY v.created_at`).all();
       return json({vehicles:result.results,generated_at:now()});
     }
     if(u.pathname==='/api/capabilities'&&request.method==='GET'){
