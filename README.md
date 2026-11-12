@@ -23,9 +23,26 @@ Read-only Range Rover L460 (2025) vehicle monitoring proof of concept.
 4. Never paste `private.pem` into chat, a GitHub issue, source control or the JLR form.
 5. **Before deleting Codespaces**, arrange secure private-key migration to the eventual Cloudflare Worker secret store. A lost private key makes the registered certificate unusable. Codespaces storage is not permanent key management.
 
+## Corporate API authentication test
+
+If the portal user classification is genuinely CORPORATE / fleet operator, use client credentials (not Device Code). In Codespaces run:
+
+```bash
+git pull
+node scripts/test-fleet-api.cjs
+```
+
+On successful authentication, optionally test journeys with an environment-only VIN (never commit the VIN):
+
+```bash
+JLR_VIN=YOUR_17_CHARACTER_VIN node scripts/test-fleet-api.cjs
+```
+
+The script prints HTTP status, errors, and response field names but not raw journey records, tokens or locations. If the Corporate classification was selected by mistake, correct it in the portal rather than relying on fleet access.
+
 ## Design
 
-- JLR REST owner flow: OAuth Authorization Code + PKCE (or Device Code) with signed client assertion, plus per-request DPoP.
+- JLR REST corporate/fleet flow: Client Credentials with signed client assertion and per-request DPoP. Personal owner flow: Authorization Code + PKCE (or Device Code).
 - Do not assume client credentials alone permits owner REST calls. It is used for owner MQTT streaming; REST owner flows require user authorization.
 - `/v1/vehicles/{vin}/journeys` availability and Japanese vehicle support still require testing.
 - Store journey end timestamps (not merely API update times).
