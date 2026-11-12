@@ -1,0 +1,17 @@
+{
+  "name": "garage-monitor",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-11-12",
+  "account_id": "cf43383b1d9c92eded4853c40c871343",
+  "workers_dev": false,
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "garage-monitor",
+      "database_id": "d30dd500-c685-4076-88b4-e352f67c7849"
+    }
+  ],
+  "triggers": {
+    "crons": ["10 0 * * *"]
+  }
+}
