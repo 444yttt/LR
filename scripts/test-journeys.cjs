@@ -59,14 +59,22 @@ async function main(){
       continue;
     }
     if(check.name.startsWith('Journey')){
-      const list=Array.isArray(json)?json:(json?.content||json?.journeys||json?.data);
+      const list=Array.isArray(json)?json:(json?.items||json?.content||json?.journeys||json?.data);
       console.log('Journeys in response:',Array.isArray(list)?list.length:'unknown format');
       if(Array.isArray(list)&&list.length){
-        const latest=list[0];
-        const allowed=/^(startTime|endTime|startedAt|endedAt|startDateTime|endDateTime|startTimestamp|endTimestamp|createdAt|timestamp|departureTime|arrivalTime)$/i;
-        const timestamps=Object.entries(latest).filter(([k,v])=>allowed.test(k)&&typeof v==='string');
-        console.log('Journey timestamp candidates:',JSON.stringify(Object.fromEntries(timestamps)));
-        console.log('Available field names:',Object.keys(latest).join(', '));
+        const allowed=/^(startTime|endTime|startedAt|endedAt|startDateTime|endDateTime|startTimestamp|endTimestamp|createdAt|timestamp|departureTime|arrivalTime|startDate|endDate|start|end)$/i;
+        const safeTimestampFields = item => Object.fromEntries(Object.entries(item||{}).filter(([k,v])=>allowed.test(k)&&(typeof v==='string'||typeof v==='number') && !Number.isNaN(Date.parse(String(v)))).map(([k,v])=>[k,new Date(v).toISOString()]));
+        const summaries=list.slice(0,20).map((item,i)=>({index:i,timestamps:safeTimestampFields(item)}));
+        console.log('Journey timestamp candidates (no locations):',JSON.stringify(summaries));
+        console.log('Available field names:',Object.keys(list[0]).join(', '));
+        const endings=summaries.flatMap(s=>Object.entries(s.timestamps).filter(([k])=>/^(end|ended|arrival)/i.test(k)).map(([k,v])=>({field:k,value:v}))).sort((a,b)=>Date.parse(b.value)-Date.parse(a.value));
+        if(endings.length){
+          const last=endings[0];
+          console.log('LATEST CONFIRMED JOURNEY END (candidate):',last.value,'via',last.field);
+          console.log('Elapsed days:',((Date.now()-Date.parse(last.value))/86400000).toFixed(1));
+        } else {
+          console.log('No recognized journey end timestamp; inspect field names before determining last drive.');
+        }
       }else console.log('Top-level response fields:',Object.keys(json||{}).join(', '));
     }else{
       console.log('Vehicle API returned data; full metadata intentionally not displayed.');
