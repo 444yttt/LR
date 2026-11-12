@@ -160,7 +160,10 @@ async function collect(env){
     const end=new Date(latest).toISOString();
     const previous=await env.DB.prepare('SELECT last_drive_at,last_drive_verified FROM snapshots WHERE vehicle_id=?').bind('range-l460').first();
     // A change in source timestamp must be cross-checked in Remote app before enabling automatic alerts.
-    const verified=previous?.last_drive_at===end&&previous?.last_drive_verified===1?1:0;
+    if(previous?.last_drive_at&&Date.parse(end)<Date.parse(previous.last_drive_at))
+      throw new Error('journey_timestamp_regression');
+    // One-time owner confirmation of the OEM adapter remains valid as new journeys arrive.
+    const verified=previous?.last_drive_verified===1?1:0;
     await env.DB.prepare(`INSERT INTO snapshots(vehicle_id,fetched_at,source,last_drive_at,last_drive_verified,data_status,payload_json,updated_at)
     VALUES(? ,?,'jlr',?,?,'fresh','{}',?)
     ON CONFLICT(vehicle_id) DO UPDATE SET fetched_at=excluded.fetched_at,source=excluded.source,last_drive_at=excluded.last_drive_at,
