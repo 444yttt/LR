@@ -37,6 +37,7 @@ async function main(){
   const base='https://data.jlr-vcdp.com/v1/vehicles/'+encodeURIComponent(vin);
   const checks=[
     {name:'Vehicle metadata',url:base},
+    {name:'Vehicle status',url:base+'/status'},
     {name:'Journey history (latest 20)',url:base+'/journeys?page=0&size=20&sort=createdAt%2Cdesc'}
   ];
   for(const check of checks){
@@ -46,9 +47,12 @@ async function main(){
       Accept:'application/json'
     }});
     console.log(check.name+': HTTP '+response.status);
+    console.log('Correlation ID:',response.headers.get('x-correlation-id')||'not supplied');
     const json=await response.json().catch(()=>null);
     if(!response.ok) {
       console.log('Error code:',json?.title||json?.error||response.statusText);
+      console.log('Error type:',json?.type||'not supplied');
+      console.log('Response content type:',response.headers.get('content-type')||'not supplied');
       if(json?.detail||json?.error_description)console.log('Description:',json.detail||json.error_description);
       continue;
     }
