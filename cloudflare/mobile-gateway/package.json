@@ -1,0 +1,7 @@
+{
+  "name": "garage-monitor-mobile-gateway",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "node --test src/*.test.js" },
+  "dependencies": { "jose": "^6.1.0" }
+}
