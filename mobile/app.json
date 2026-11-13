@@ -3,10 +3,19 @@
     "name": "Garage Monitor",
     "slug": "garage-monitor",
     "scheme": "garage-monitor",
-    "platforms": ["ios"],
+    "platforms": [
+      "ios"
+    ],
     "orientation": "portrait",
     "userInterfaceStyle": "light",
-    "ios": { "bundleIdentifier": "studio.naus.garagemonitor", "supportsTablet": false },
-    "plugins": ["expo-notifications", "expo-secure-store"]
+    "ios": {
+      "bundleIdentifier": "studio.naus.garagemonitor",
+      "supportsTablet": false
+    },
+    "plugins": [
+      "expo-notifications",
+      "expo-secure-store"
+    ],
+    "icon": "./assets/app-icon.png"
   }
 }
