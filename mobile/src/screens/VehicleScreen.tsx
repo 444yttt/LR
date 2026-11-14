@@ -2,7 +2,7 @@ import { Pressable, Text, View } from 'react-native';
 import Animated, { useAnimatedScrollHandler } from 'react-native-reanimated';
 import { VEHICLES, connectionState, healthView, lastUpdateLine, metrics } from '../garageModel.ts';
 import { CountUp, PressScale, Skeleton, useProgressReveal } from '../ui/motion';
-import { ActionRow, BackButton, modelInput, useData, usePullToRefresh } from '../ui/parts';
+import { ActionRow, BackButton, useFeed, usePullToRefresh } from '../ui/parts';
 import { useNav, type Entry } from '../ui/stack';
 import { HeroStage } from '../ui/stage';
 import { At, ink, medium, mute, place, regular, rule, semibold, typeStyle, useNow, usePx, white, type Px } from '../ui/theme';
@@ -14,16 +14,16 @@ import { At, ink, medium, mute, place, regular, rule, semibold, typeStyle, useNo
 export function VehicleScreen({ entry, vehicle }: { entry: Entry; vehicle: number }) {
   const px = usePx();
   const now = useNow();
-  const data = useData();
   const nav = useNav();
   const info = VEHICLES[vehicle];
-  const isRover = vehicle === 0;
-  const connection = connectionState(modelInput(data), now);
-  const loading = isRover && connection.loading;
-  const values = metrics(vehicle, data.snapshot, now);
-  const health = healthView(vehicle, data.snapshot, now);
-  const status = isRover ? connection.status : info.offlineStatus;
-  const footer = isRover ? lastUpdateLine(data.snapshot, now) : 'Live vehicle data unavailable';
+  // Only a vehicle with a feed (production: the Range Rover) shows values; the others keep their offline copy.
+  const feed = useFeed(vehicle);
+  const connection = feed ? connectionState(feed, now, vehicle) : null;
+  const loading = connection?.loading ?? false;
+  const values = metrics(feed, now);
+  const health = healthView(vehicle, feed, now);
+  const status = connection?.status ?? info.offlineStatus;
+  const footer = feed ? (feed.demo ? 'Demo data · ' : '') + lastUpdateLine(feed.snapshot, now) : 'Live vehicle data unavailable';
   const refresh = usePullToRefresh();
   const onScroll = useAnimatedScrollHandler(event => { entry.scroll.value = event.contentOffset.y; });
   const p = entry.progress;
@@ -36,7 +36,7 @@ export function VehicleScreen({ entry, vehicle }: { entry: Entry; vehicle: numbe
   const metric = typeStyle(px, 25, semibold, ink);
 
   return <Animated.ScrollView style={{ flex: 1 }} contentInsetAdjustmentBehavior="never" onScroll={onScroll} scrollEventThrottle={16}
-    contentContainerStyle={{ height: px(920) }} refreshControl={isRover ? refresh : undefined}>
+    contentContainerStyle={{ height: px(920) }} refreshControl={feed && !feed.demo ? refresh : undefined}>
     <Animated.View style={[place(px, 0, 0, 390, 100), back]}>
       <BackButton px={px} label="Back to Garage" />
     </Animated.View>
@@ -49,7 +49,7 @@ export function VehicleScreen({ entry, vehicle }: { entry: Entry; vehicle: numbe
       </Pressable>
     </Animated.View>
 
-    <HeroStage px={px} index={vehicle} origin={entry.origin} progress={p} scrollOffset={entry.scroll} landed={entry.landed} />
+    <HeroStage px={px} index={vehicle} origin={entry.origin} progress={p} scrollOffset={entry.scroll} onReady={entry.begin} />
 
     <Animated.View style={[place(px, 16, 421, 358, 167, 18), { backgroundColor: white }, info1]}>
       <View style={[place(px, 174, 21, 1, 125), { backgroundColor: rule }]} />
@@ -78,8 +78,8 @@ export function VehicleScreen({ entry, vehicle }: { entry: Entry; vehicle: numbe
 
     <Animated.View style={[place(px, 0, 747, 390, 65), info3]}>
       <ActionRow px={px} style={{ position: 'absolute', left: px(16), top: 0, marginTop: 0 }}
-        title={isRover ? 'Recent drives' : 'Connection settings'}
-        onPress={() => nav.push(isRover ? { name: 'drives' } : { name: 'connection', vehicle })} />
+        title={feed ? 'Recent drives' : 'Connection settings'}
+        onPress={() => nav.push(feed ? { name: 'drives', vehicle } : { name: 'connection', vehicle })} />
     </Animated.View>
 
     <Animated.View style={[place(px, 16, 838, 358, 40), info4]}>

@@ -12,7 +12,7 @@ export type GarageInput = {
   lastSyncedAt: number | null;
 };
 
-export type VehicleId = 'range-rover' | 'ferrari-296' | 'bmw-m4';
+export type VehicleId = 'range-rover' | 'ferrari-296' | 'bmw-x7';
 
 export type VehicleInfo = {
   id: VehicleId;
@@ -25,25 +25,49 @@ export type VehicleInfo = {
   offlineCaption: string;
   /** Honest description of where the adapter stands. */
   adapterNote: string;
+  brand: string;
+  /** Data source name, e.g. "JLR Data Hub"; `sourceShort` is used inside status copy ("JLR update failed"). */
+  source: string;
+  sourceShort: string;
+  diagnostics: string;
+  ownerApp: string;
 };
+
+/**
+ * Data for one vehicle. In production only the Range Rover has one (the live Nostos gateway); Ferrari and BMW have
+ * none and render as not connected / setup required. Demo mode (src/demo) supplies synthetic feeds for all three.
+ */
+export type Feed = GarageInput & { demo?: boolean };
 
 export const VEHICLES: readonly VehicleInfo[] = [
   {
     id: 'range-rover', name: 'Range Rover', model: 'L460', connected: true,
     offlineStatus: 'Sync unverified', offlineTitle: 'Not checked', offlineCaption: 'Health data not yet verified',
     adapterNote: 'Read-only through JLR Data Hub owner authorization and the Nostos gateway.',
+    brand: 'Land Rover', source: 'JLR Data Hub', sourceShort: 'JLR', diagnostics: 'JLR diagnostics', ownerApp: 'the Land Rover Remote app',
   },
   {
     id: 'ferrari-296', name: 'Ferrari 296', model: 'Ferrari', connected: false,
     offlineStatus: 'Not connected', offlineTitle: 'Not connected', offlineCaption: 'Vehicle data source not connected',
     adapterNote: 'No Ferrari data source is available in this build. MyFerrari connectivity and an optional owner-installed OBD device are still being investigated.',
+    brand: 'Ferrari', source: 'MyFerrari', sourceShort: 'Ferrari', diagnostics: 'Ferrari diagnostics', ownerApp: 'the MyFerrari app',
   },
   {
-    id: 'bmw-m4', name: 'BMW M4', model: 'BMW', connected: false,
+    id: 'bmw-x7', name: 'BMW X7', model: 'BMW', connected: false,
     offlineStatus: 'Setup required', offlineTitle: 'Setup required', offlineCaption: 'Vehicle data setup is incomplete',
     adapterNote: 'BMW CarData access has not been set up. Market entitlement and data scopes must be confirmed before this vehicle can connect.',
+    brand: 'BMW', source: 'BMW CarData', sourceShort: 'BMW', diagnostics: 'BMW diagnostics', ownerApp: 'the My BMW app',
   },
 ];
+
+/**
+ * Per-vehicle feeds. Production (`demo` null): the live gateway input for the Range Rover only; every other vehicle has
+ * no feed, so it can never show sample values. Demo/test builds pass synthetic feeds for every vehicle.
+ */
+export function vehicleFeeds(live: GarageInput, demo: readonly Feed[] | null): (Feed | null)[] {
+  if (demo) return VEHICLES.map((_, i) => demo[i] ?? null);
+  return VEHICLES.map(vehicle => vehicle.connected ? live : null);
+}
 
 export type ConnectionKind =
   | 'unconfigured' | 'setupUnavailable' | 'signedOut' | 'signingIn' | 'signInFailed'
@@ -79,7 +103,8 @@ export function relativeTime(then: number | string | null | undefined, now: numb
   return days === 1 ? 'yesterday' : days + ' days ago';
 }
 
-export function connectionState(input: GarageInput, now: number): Connection {
+export function connectionState(input: GarageInput, now: number, vehicle = 0): Connection {
+  const info = VEHICLES[vehicle];
   const { phase, snapshot, hasSession, discoveryFailed } = input;
   const synced = relativeTime(input.lastSyncedAt, now);
   const make = (kind: ConnectionKind, status: string, title: string, detail: string, action: ConnectionAction = null): Connection =>
@@ -102,7 +127,7 @@ export function connectionState(input: GarageInput, now: number): Connection {
     return make('signInFailed', 'Sign-in failed', 'Sign-in failed', 'Sign-in did not complete. No vehicle data was requested.', 'signIn');
   }
   if (phase === 'signedOut') {
-    return make('signedOut', 'Sign-in required', 'Not signed in', 'Sign in to read the Range Rover status through the Nostos gateway.', 'signIn');
+    return make('signedOut', 'Sign-in required', 'Not signed in', 'Sign in to read the ' + info.name + ' status through the Nostos gateway.', 'signIn');
   }
   if (phase === 'loading') {
     if (!snapshot) return { ...make('connecting', 'Updating', 'Updating', 'Requesting the latest vehicle report.'), loading: true };
@@ -119,12 +144,12 @@ export function connectionState(input: GarageInput, now: number): Connection {
     return make('notFetched', 'Not updated yet', 'Not updated yet', 'Signed in. No vehicle report has been retrieved on this device yet.', 'refresh');
   }
   if (snapshot.status === 'reauthorize') {
-    return make('jlrReauthorize', 'JLR authorization expired', 'JLR authorization expired',
-      'The JLR account authorization used by the collector has expired. Reconnect the JLR account on the collector before vehicle data can update.', 'refresh');
+    return make('jlrReauthorize', info.sourceShort + ' authorization expired', info.sourceShort + ' authorization expired',
+      'The ' + info.sourceShort + ' account authorization used by the collector has expired. Reconnect the ' + info.sourceShort + ' account on the collector before vehicle data can update.', 'refresh');
   }
   if (snapshot.status === 'error') {
-    return make('sourceError', 'JLR update failed', 'JLR update failed',
-      'The collector could not read the vehicle from JLR on its latest run. Values are from the last good report.', 'refresh');
+    return make('sourceError', info.sourceShort + ' update failed', info.sourceShort + ' update failed',
+      'The collector could not read the vehicle from ' + info.sourceShort + ' on its latest run. Values are from the last good report.', 'refresh');
   }
   if (snapshot.status === 'pending') {
     return make('pending', 'Waiting for vehicle data', 'Waiting for vehicle data', 'Signed in. The collector has not stored a vehicle report yet.', 'refresh');
@@ -132,7 +157,7 @@ export function connectionState(input: GarageInput, now: number): Connection {
   if (isFresh(snapshot, now)) {
     const ago = relativeTime(snapshot.fetchedAt, now);
     return make('fresh', ago ? 'Updated ' + ago : 'Last update available', 'Connected',
-      'Vehicle data is current. Nostos reads JLR data only and never sends commands.', 'refresh');
+      'Vehicle data is current. Nostos reads ' + info.sourceShort + ' data only and never sends commands.', 'refresh');
   }
   return make('stale', 'Last update is stale', 'Last update is stale',
     'The latest vehicle report is older than 36 hours. Values may not reflect the vehicle now.', 'refresh');
@@ -211,22 +236,24 @@ export const formatEfficiency = (drive: Drive) => drive.efficiencyLPer100Km === 
 
 export type HealthView = { title: string; caption: string; detail: string; reported: boolean };
 
-export function healthView(vehicle: number, snapshot: Snapshot | null, now: number): HealthView {
+/** Health for one vehicle. No feed (Ferrari / BMW in production) → the vehicle's offline copy, never sample values. */
+export function healthView(vehicle: number, feed: GarageInput | null, now: number): HealthView {
   const info = VEHICLES[vehicle];
-  if (!info.connected) return { title: info.offlineTitle, caption: info.offlineCaption, detail: info.adapterNote, reported: false };
+  if (!feed) return { title: info.offlineTitle, caption: info.offlineCaption, detail: info.adapterNote, reported: false };
+  const snapshot = feed.snapshot;
   const fresh = snapshot !== null && isFresh(snapshot, now);
   const health = fresh ? snapshot.health : null;
   if (health === 'good') {
-    return { title: 'No reported issues', caption: 'Reported by JLR diagnostics', reported: true,
-      detail: 'The latest JLR diagnostics report has no attention or service items. This does not replace an inspection.' };
+    return { title: 'No reported issues', caption: 'Reported by ' + info.diagnostics, reported: true,
+      detail: 'The latest ' + info.diagnostics + ' report has no attention or service items. This does not replace an inspection.' };
   }
   if (health === 'attention-required') {
-    return { title: 'Attention required', caption: 'Reported by JLR diagnostics', reported: true,
-      detail: 'JLR diagnostics report an item that needs attention. Check the vehicle display or the Land Rover Remote app for details.' };
+    return { title: 'Attention required', caption: 'Reported by ' + info.diagnostics, reported: true,
+      detail: info.diagnostics + ' report an item that needs attention. Check the vehicle display or ' + info.ownerApp + ' for details.' };
   }
   if (health === 'service-required') {
-    return { title: 'Service required', caption: 'Reported by JLR diagnostics', reported: true,
-      detail: 'JLR diagnostics report that service is required. Contact a Land Rover retailer.' };
+    return { title: 'Service required', caption: 'Reported by ' + info.diagnostics, reported: true,
+      detail: info.diagnostics + ' report that service is required. Contact a ' + info.brand + ' retailer.' };
   }
   return { title: 'Not checked', caption: 'Health data not yet verified', reported: false,
     detail: snapshot && !fresh && snapshot.health
@@ -236,8 +263,10 @@ export function healthView(vehicle: number, snapshot: Snapshot | null, now: numb
 
 export type Metrics = { rangeKm: number | null; fuelPercent: number | null; lastDrive: string | null; idleDays: number | null };
 
-export function metrics(vehicle: number, snapshot: Snapshot | null, now: number): Metrics {
-  if (vehicle !== 0 || !snapshot) return { rangeKm: null, fuelPercent: null, lastDrive: null, idleDays: null };
+/** Metric values for one vehicle's feed; no feed or no report → all unknown. */
+export function metrics(feed: GarageInput | null, now: number): Metrics {
+  const snapshot = feed?.snapshot ?? null;
+  if (!snapshot) return { rangeKm: null, fuelPercent: null, lastDrive: null, idleDays: null };
   return {
     rangeKm: snapshot.rangeKm,
     fuelPercent: snapshot.fuelPercent,
@@ -249,8 +278,8 @@ export function metrics(vehicle: number, snapshot: Snapshot | null, now: number)
 export type Route =
   | { name: 'garage' }
   | { name: 'vehicle'; vehicle: number }
-  | { name: 'drives' }
-  | { name: 'drive'; endedAt: string }
+  | { name: 'drives'; vehicle: number }
+  | { name: 'drive'; vehicle: number; endedAt: string }
   | { name: 'status'; vehicle: number }
   | { name: 'connection'; vehicle: number }
   | { name: 'notifications' };
@@ -260,8 +289,8 @@ export function stackFor(route: Route): Route[] {
   switch (route.name) {
     case 'garage': return [];
     case 'vehicle': return [route];
-    case 'drives': return [{ name: 'vehicle', vehicle: 0 }, route];
-    case 'drive': return [{ name: 'vehicle', vehicle: 0 }, { name: 'drives' }, route];
+    case 'drives': return [{ name: 'vehicle', vehicle: route.vehicle }, route];
+    case 'drive': return [{ name: 'vehicle', vehicle: route.vehicle }, { name: 'drives', vehicle: route.vehicle }, route];
     case 'status':
     case 'connection': return [{ name: 'vehicle', vehicle: route.vehicle }, route];
     case 'notifications': return [{ name: 'vehicle', vehicle: 0 }, { name: 'connection', vehicle: 0 }, route];
@@ -272,7 +301,8 @@ export const scheme = 'garage-monitor';
 
 /**
  * garage-monitor:// deep links. `garage-monitor://auth` is the OAuth redirect and is never a screen.
- * Supported: /, /vehicle/<id>, /vehicle/<id>/status, /vehicle/<id>/connection, /drives, /notifications.
+ * Supported: /, /vehicle/<id>, /vehicle/<id>/status, /vehicle/<id>/connection, /vehicle/<id>/drives, /drives (Range Rover),
+ * /notifications.
  */
 export function routeFromUrl(url: string | null | undefined): Route | null {
   if (!url) return null;
@@ -281,7 +311,7 @@ export function routeFromUrl(url: string | null | undefined): Route | null {
   const parts = match[1].split('/').filter(Boolean).map(part => part.toLowerCase());
   if (!parts.length) return { name: 'garage' };
   if (parts[0] === 'auth') return null;
-  if (parts[0] === 'drives' && parts.length === 1) return { name: 'drives' };
+  if (parts[0] === 'drives' && parts.length === 1) return { name: 'drives', vehicle: 0 };
   if (parts[0] === 'notifications' && parts.length === 1) return { name: 'notifications' };
   if (parts[0] === 'vehicle' && parts.length >= 2 && parts.length <= 3) {
     const vehicle = VEHICLES.findIndex(item => item.id === parts[1]);
@@ -289,6 +319,7 @@ export function routeFromUrl(url: string | null | undefined): Route | null {
     if (parts.length === 2) return { name: 'vehicle', vehicle };
     if (parts[2] === 'status') return { name: 'status', vehicle };
     if (parts[2] === 'connection') return { name: 'connection', vehicle };
+    if (parts[2] === 'drives') return { name: 'drives', vehicle };
   }
   return null;
 }

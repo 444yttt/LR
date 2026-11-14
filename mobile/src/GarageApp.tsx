@@ -15,8 +15,8 @@ function screen(entry: Entry): ReactNode {
   switch (route.name) {
     case 'garage': return null;
     case 'vehicle': return <VehicleScreen entry={entry} vehicle={route.vehicle} />;
-    case 'drives': return <DrivesScreen />;
-    case 'drive': return <DriveScreen endedAt={route.endedAt} />;
+    case 'drives': return <DrivesScreen vehicle={route.vehicle} />;
+    case 'drive': return <DriveScreen vehicle={route.vehicle} endedAt={route.endedAt} />;
     case 'status': return <StatusScreen vehicle={route.vehicle} />;
     case 'connection': return <ConnectionScreen vehicle={route.vehicle} />;
     case 'notifications': return <NotificationsScreen />;

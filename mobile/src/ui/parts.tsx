@@ -2,13 +2,16 @@ import { createContext, useContext, useState, useEffect, type ReactNode } from '
 import { RefreshControl, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 import Animated, { useAnimatedScrollHandler } from 'react-native-reanimated';
 import type { GarageData } from '../useGarage';
-import type { GarageInput } from '../garageModel.ts';
+import { vehicleFeeds, type Feed, type GarageInput } from '../garageModel.ts';
 import { PressScale, Reveal, haptics } from './motion';
 import { useEntry, useNav } from './stack';
 import { At, ink, medium, mute, place, regular, rule, semibold, typeStyle, usePx, white, type Px } from './theme';
 
 export type Data = Pick<GarageData, 'snapshot' | 'phase' | 'refresh' | 'signIn' | 'signOut' | 'notificationFailed' | 'discoveryFailed'
-  | 'lastSyncedAt' | 'retryDiscovery' | 'hasSession' | 'canSignIn'>;
+  | 'lastSyncedAt' | 'retryDiscovery' | 'hasSession' | 'canSignIn'> & {
+  /** Synthetic per-vehicle feeds. Set only by the demo/preview entry point (src/demo); production leaves it undefined. */
+  demo?: readonly Feed[] | null;
+};
 
 const DataContext = createContext<Data | null>(null);
 export const DataProvider = DataContext.Provider;
@@ -20,6 +23,11 @@ export function useData(): Data {
 export const modelInput = (data: Data): GarageInput => ({
   phase: data.phase, snapshot: data.snapshot, hasSession: data.hasSession, discoveryFailed: data.discoveryFailed, lastSyncedAt: data.lastSyncedAt,
 });
+/** Feeds for every vehicle (see garageModel.vehicleFeeds): null means "no data source", never sample values. */
+export const feedsOf = (data: Data) => vehicleFeeds(modelInput(data), data.demo ?? null);
+export function useFeed(vehicle: number): Feed | null {
+  return feedsOf(useData())[vehicle] ?? null;
+}
 
 /**
  * Pull-to-refresh that only spins for a pull the user made, then confirms the outcome with a haptic.

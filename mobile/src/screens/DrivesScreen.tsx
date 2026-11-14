@@ -1,19 +1,20 @@
 import { Text, View } from 'react-native';
-import { displayLongDay, displayTime, drivesView, formatDistance, formatDuration, formatEfficiency, relativeTime } from '../garageModel.ts';
+import { VEHICLES, displayLongDay, displayTime, drivesView, formatDistance, formatDuration, formatEfficiency, relativeTime } from '../garageModel.ts';
 import { PressScale, Reveal, Skeleton } from '../ui/motion';
-import { Card, Field, Headline, Note, Rule, SectionLabel, SubScreen, modelInput, useData } from '../ui/parts';
+import { Card, Field, Headline, Note, Rule, SectionLabel, SubScreen, useFeed } from '../ui/parts';
 import { useNav } from '../ui/stack';
 import { ink, medium, mute, regular, rule, semibold, typeStyle, useNow, usePx, white } from '../ui/theme';
 
 const notReported = 'Not reported by the vehicle source';
 
-export function DrivesScreen() {
+export function DrivesScreen({ vehicle }: { vehicle: number }) {
   const px = usePx();
   const now = useNow();
-  const data = useData();
+  const feed = useFeed(vehicle);
   const nav = useNav();
-  const view = drivesView(modelInput(data), now);
-  return <SubScreen title="Recent drives" caption="Range Rover · verified trip end times (JST)">
+  const info = VEHICLES[vehicle];
+  const view = feed ? drivesView(feed, now) : { kind: 'signedOut' as const, message: info.adapterNote };
+  return <SubScreen title="Recent drives" caption={info.name + (feed?.demo ? ' · demo data' : ' · verified trip end times (JST)')}>
     {view.kind === 'loading' ? <Card px={px} style={{ marginTop: px(24) }}>
       {[0, 1, 2].map(i => <View key={i}>
         {i > 0 && <Rule px={px} />}
@@ -34,7 +35,7 @@ export function DrivesScreen() {
             return <View key={drive.endedAt}>
               {i > 0 && <Rule px={px} />}
               <PressScale accessibilityRole="button" accessibilityLabel={'Drive ended ' + displayTime(drive.endedAt) + (detail ? ', ' + detail : '')}
-                onPress={() => nav.push({ name: 'drive', endedAt: drive.endedAt })}
+                onPress={() => nav.push({ name: 'drive', vehicle, endedAt: drive.endedAt })}
                 style={{ paddingHorizontal: px(14), paddingVertical: px(15), backgroundColor: white, flexDirection: 'row', alignItems: 'center' }}>
                 <View style={{ flex: 1 }}>
                   <Text style={typeStyle(px, 15, semibold, ink)}>{displayTime(drive.endedAt)}</Text>
@@ -50,13 +51,15 @@ export function DrivesScreen() {
   </SubScreen>;
 }
 
-export function DriveScreen({ endedAt }: { endedAt: string }) {
+export function DriveScreen({ vehicle, endedAt }: { vehicle: number; endedAt: string }) {
   const px = usePx();
   const now = useNow();
-  const data = useData();
-  const drive = data.snapshot?.lastDriveVerified ? data.snapshot.trips?.find(item => item.endedAt === endedAt) ?? null : null;
+  const feed = useFeed(vehicle);
+  const info = VEHICLES[vehicle];
+  const snapshot = feed?.snapshot ?? null;
+  const drive = snapshot?.lastDriveVerified ? snapshot.trips?.find(item => item.endedAt === endedAt) ?? null : null;
   if (!drive) {
-    return <SubScreen title="Drive" caption="Range Rover">
+    return <SubScreen title="Drive" caption={info.name}>
       <Card px={px} style={{ marginTop: px(24) }}>
         <Headline px={px} eyebrow="Drive" title="Not available" caption="This drive is no longer in the verified history." />
       </Card>
@@ -84,7 +87,7 @@ export function DriveScreen({ endedAt }: { endedAt: string }) {
       — {notReported}. The gateway currently reports the verified trip end time only.
     </Text>}
     <Card px={px}>
-      <Field px={px} label="Source" value="JLR journeys · read-only" caption="End time verified by the Nostos collector" />
+      <Field px={px} label="Source" value={feed?.demo ? 'Demo data · not from the vehicle' : info.sourceShort + ' journeys · read-only'} caption="End time verified by the Nostos collector" />
       {drive.startedAt && <>
         <Rule px={px} />
         <Field px={px} label="Started" value={displayTime(drive.startedAt) + ' JST'} />
