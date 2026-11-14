@@ -9,6 +9,7 @@ import {
   type PersistedSession, type SessionStore,
 } from './session';
 import { parseSnapshot, type Snapshot } from './telemetry';
+import type { Phase } from './garageModel.ts';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -32,7 +33,6 @@ function httpsUrl(input: string | undefined): string | null {
 }
 
 type MemorySession = { token: string; expiresAt: number; refreshToken: string | null };
-type Phase = 'unconfigured' | 'signedOut' | 'signingIn' | 'loading' | 'ready' | 'failed' | 'expired';
 
 function remember(session: PersistedSession): MemorySession {
   return { token: session.accessToken, expiresAt: session.expiresAt, refreshToken: session.refreshToken };
@@ -63,6 +63,7 @@ export function useGarage() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [phase, setPhase] = useState<Phase>(configured ? 'loading' : 'unconfigured');
   const [notificationFailed, setNotificationFailed] = useState(false);
+  const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
   const [refreshGeneration, setRefreshGeneration] = useState(0);
   const session = useRef<MemorySession | null>(null);
   const pendingRefresh = useRef<string | null>(null);
@@ -70,12 +71,14 @@ export function useGarage() {
   const signingIn = useRef(false);
   const renewing = useRef(false);
   const restored = useRef(!configured);
+  const epoch = useRef(0);
 
   const expire = useCallback(() => {
     current.current?.abort();
     session.current = null;
     pendingRefresh.current = null;
     setSnapshot(null);
+    setLastSyncedAt(null);
     setPhase(phaseAfterRefreshFailure());
     void clearSession(secureStore);
   }, []);
@@ -117,6 +120,7 @@ export function useGarage() {
       const next = parseSnapshot(await response.json());
       if (current.current !== controller || controller.signal.aborted) return;
       setSnapshot(next);
+      setLastSyncedAt(Date.now());
       setPhase('ready');
       notifyIfDue(next).then(() => setNotificationFailed(false), () => setNotificationFailed(true));
     } catch {
@@ -130,22 +134,24 @@ export function useGarage() {
   const renew = useCallback(async (refreshToken: string) => {
     if (!discovery || renewing.current) return;
     renewing.current = true;
+    const started = epoch.current;
     setPhase('loading');
     try {
       const token = await Auth.refreshAsync({
         clientId, refreshToken,
         extraParams: resource ? { resource } : undefined,
       }, discovery);
+      if (started !== epoch.current) return;
       const next = sessionFromToken(token, Date.now(), refreshToken);
       if (!next) throw new Error('Invalid session');
       await persist(next);
     } catch {
-      expire();
+      if (started === epoch.current) expire();
       return;
     } finally {
       renewing.current = false;
     }
-    await refresh();
+    if (started === epoch.current) await refresh();
   }, [discovery, persist, refresh, expire]);
 
   useEffect(() => {
@@ -192,17 +198,32 @@ export function useGarage() {
         setPhase(result.type === 'error' ? 'failed' : 'signedOut');
         return;
       }
+      const started = epoch.current;
       const token = await Auth.exchangeCodeAsync({
         clientId, code: result.params.code, redirectUri,
         extraParams: { code_verifier: request.codeVerifier, ...(resource ? { resource } : {}) },
       }, discovery);
       const next = sessionFromToken(token, Date.now(), null);
       if (!next) throw new Error('Invalid session');
+      if (started !== epoch.current) return;
       await persist(next);
       await refresh();
     } catch { setPhase('failed'); }
     finally { signingIn.current = false; }
   }, [configured, discovery, request, promptAsync, refresh, persist]);
+
+  /** Forgets the Garage session on this device only. JLR access on the collector is untouched. */
+  const signOut = useCallback(async () => {
+    epoch.current += 1;
+    current.current?.abort();
+    current.current = null;
+    session.current = null;
+    pendingRefresh.current = null;
+    setSnapshot(null);
+    setLastSyncedAt(null);
+    setPhase(configured ? 'signedOut' : 'unconfigured');
+    try { await clearSession(secureStore); } catch { /* nothing else to clear */ }
+  }, [configured]);
 
   useEffect(() => {
     const listener = AppState.addEventListener('change', value => { if (value === 'active') void refresh(); });
@@ -210,9 +231,11 @@ export function useGarage() {
   }, [refresh]);
 
   return {
-    snapshot, phase, refresh, signIn, notificationFailed, discoveryFailed,
+    snapshot, phase, refresh, signIn, signOut, notificationFailed, discoveryFailed, lastSyncedAt,
     retryDiscovery: () => setDiscoveryAttempt(value => value + 1),
     hasSession: session.current !== null,
     canSignIn: Boolean(discovery && request),
   };
 }
+
+export type GarageData = ReturnType<typeof useGarage>;
