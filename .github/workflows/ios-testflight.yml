@@ -1,5 +1,9 @@
 name: Nostos TestFlight
 
+# Manual dispatch signs with an App Store Connect API key and uploads with altool.
+# Repository secret names: ASC_KEY_ID, ASC_ISSUER_ID, APPLE_TEAM_ID, and
+# ASC_PRIVATE_KEY (raw .p8). ASC_KEY_BASE64 is accepted when ASC_PRIVATE_KEY is unset.
+
 on:
   workflow_dispatch:
     inputs:
@@ -8,17 +12,22 @@ on:
         type: boolean
         default: true
   push:
-    branches: [garage-monitor/ios-ad-hoc]
-    paths: [.github/workflows/ios-testflight.yml]
+    branches:
+      - garage-monitor/ios-ad-hoc
+      - nostos/testflight-asc-signing
+    paths:
+      - .github/workflows/ios-testflight.yml
+      - mobile/**
 
 permissions:
   contents: read
 
 jobs:
-  archive:
-    if: github.repository == '444yttt/LR' && github.ref == 'refs/heads/garage-monitor/ios-ad-hoc'
-    runs-on: macos-15
-    timeout-minutes: 45
+  ios:
+    name: Nostos iOS
+    if: github.repository == '444yttt/LR'
+    runs-on: macos-26
+    timeout-minutes: 60
     env:
       CI: 'true'
       EXPO_NO_TELEMETRY: '1'
@@ -26,26 +35,106 @@ jobs:
       run:
         working-directory: mobile
     steps:
-      - name: Check signing inputs
-        if: github.event_name == 'workflow_dispatch'
-        env:
-          HAS_CERT: ${{ secrets.IOS_P12_BASE64 != '' && secrets.IOS_P12_PASSWORD != '' && secrets.IOS_APP_STORE_PROFILE_BASE64 != '' }}
-        run: test "$HAS_CERT" = true || { echo 'Configure the three iOS signing secrets before rerunning.'; exit 1; }
-        working-directory: .
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+
+      - name: Require App Store Connect secrets
+        if: github.event_name == 'workflow_dispatch'
+        working-directory: .
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+          ASC_KEY_BASE64: ${{ secrets.ASC_KEY_BASE64 }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          missing=()
+          if [ -z "$ASC_KEY_ID" ]; then missing+=("ASC_KEY_ID"); fi
+          if [ -z "$ASC_ISSUER_ID" ]; then missing+=("ASC_ISSUER_ID"); fi
+          if [ -z "$APPLE_TEAM_ID" ]; then missing+=("APPLE_TEAM_ID"); fi
+          if [ -z "$ASC_PRIVATE_KEY" ] && [ -z "$ASC_KEY_BASE64" ]; then
+            missing+=("ASC_PRIVATE_KEY or ASC_KEY_BASE64")
+          fi
+          if [ "${#missing[@]}" -ne 0 ]; then
+            echo "App Store Connect signing secrets are missing:"
+            for name in "${missing[@]}"; do
+              echo "  - ${name}"
+            done
+            echo "Add those secret names in the repository settings, then rerun this workflow."
+            exit 1
+          fi
+
+      - name: Select latest Xcode 26
+        working-directory: .
+        run: |
+          set -euo pipefail
+          selected=$(python3 - <<'PY'
+          import pathlib, re, sys
+          apps = []
+          for path in pathlib.Path("/Applications").glob("Xcode_26*.app"):
+              match = re.fullmatch(r"Xcode_(\d+(?:\.\d+)*)", path.name.removesuffix(".app"))
+              if match:
+                  apps.append((tuple(int(part) for part in match.group(1).split(".")), path))
+          if not apps:
+              print("No Xcode 26 installation found under /Applications.", file=sys.stderr)
+              sys.exit(1)
+          apps.sort()
+          print(apps[-1][1])
+          PY
+          )
+          echo "Selected Xcode: $selected"
+          sudo xcode-select -s "$selected"
+          xcodebuild -version
+          version=$(xcodebuild -version | awk 'NR==1 { print $2 }')
+          case "$version" in
+            26.*) ;;
+            *) echo "Expected Xcode 26, found $version"; exit 1 ;;
+          esac
+
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
           cache-dependency-path: mobile/package-lock.json
+
       - run: npm ci
       - run: npm run check
       - run: npm test
       - run: npx expo prebuild --platform ios --clean --no-install
+
+      - name: Check prebuilt iOS project
+        run: |
+          set -euo pipefail
+          if find ios -name '*.entitlements' -print0 | xargs -0 grep -l 'aps-environment' 2>/dev/null | grep -q .; then
+            echo "The prebuilt project contains the aps-environment entitlement."
+            echo "Local notifications must not require Push Notifications."
+            exit 1
+          fi
+          python3 - <<'PY'
+          import pathlib, plistlib, sys
+          plists = [path for path in pathlib.Path("ios").rglob("Info.plist") if "Pods" not in path.parts]
+          matched = False
+          for path in plists:
+              data = plistlib.loads(path.read_bytes())
+              version = data.get("CFBundleShortVersionString")
+              build = data.get("CFBundleVersion")
+              encryption = data.get("ITSAppUsesNonExemptEncryption")
+              print(f"{path}: version={version!r} build={build!r} encryption={encryption!r}")
+              if version == "1.0.0" and build == "$(CURRENT_PROJECT_VERSION)" and encryption is False:
+                  matched = True
+          if not matched:
+              sys.exit("App Info.plist is missing version 1.0.0, CURRENT_PROJECT_VERSION, or ITSAppUsesNonExemptEncryption=false")
+          PY
+          if grep -q -R "DEVELOPMENT_TEAM = [^;[:space:]]" ios/*.xcodeproj/project.pbxproj; then
+            echo "DEVELOPMENT_TEAM must come from the APPLE_TEAM_ID secret at build time."
+            exit 1
+          fi
+
       - run: pod install
         working-directory: mobile/ios
+
       - name: Build for iOS Simulator
         if: github.event_name == 'push'
         working-directory: mobile/ios
@@ -56,30 +145,107 @@ jobs:
           scheme=$(basename "$workspace" .xcworkspace)
           xcodebuild -workspace "$workspace" -scheme "$scheme" -configuration Release \
             -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build -quiet
-      - name: Sign, archive and export
+
+      - name: Install App Store Connect API key
+        if: github.event_name == 'workflow_dispatch'
+        working-directory: .
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+          ASC_KEY_BASE64: ${{ secrets.ASC_KEY_BASE64 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          if [ -n "$ASC_PRIVATE_KEY" ]; then
+            key_body=$(printf '%s' "$ASC_PRIVATE_KEY" | sed 's/\\n/\n/g')
+          else
+            key_body=$(printf '%s' "$ASC_KEY_BASE64" | base64 -D)
+          fi
+          case "$key_body" in
+            *$'\n') ;;
+            *) key_body="${key_body}"$'\n' ;;
+          esac
+          for dir in "$HOME/private_keys" "$HOME/.private_keys" "$HOME/.appstoreconnect/private_keys"; do
+            mkdir -p "$dir"
+            printf '%s' "$key_body" > "$dir/AuthKey_${ASC_KEY_ID}.p8"
+            chmod 600 "$dir/AuthKey_${ASC_KEY_ID}.p8"
+          done
+          unset ASC_PRIVATE_KEY ASC_KEY_BASE64 key_body
+          key_path="$HOME/private_keys/AuthKey_${ASC_KEY_ID}.p8"
+          if ! grep -q 'BEGIN PRIVATE KEY' "$key_path"; then
+            echo "The App Store Connect API key is not a PEM private key."
+            echo "Set ASC_PRIVATE_KEY to the raw .p8 contents, or ASC_KEY_BASE64 to its base64 encoding."
+            exit 1
+          fi
+
+      - name: Archive
         if: github.event_name == 'workflow_dispatch'
         env:
-          IOS_P12_BASE64: ${{ secrets.IOS_P12_BASE64 }}
-          IOS_P12_PASSWORD: ${{ secrets.IOS_P12_PASSWORD }}
-          IOS_APP_STORE_PROFILE_BASE64: ${{ secrets.IOS_APP_STORE_PROFILE_BASE64 }}
-        run: bash scripts/export-testflight.sh
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          workspace=$(find ios -maxdepth 1 -name '*.xcworkspace' -print -quit)
+          test -n "$workspace"
+          scheme=$(basename "$workspace" .xcworkspace)
+          xcodebuild archive \
+            -workspace "$workspace" \
+            -scheme "$scheme" \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/Nostos.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+            CURRENT_PROJECT_VERSION="${{ github.run_number }}"
+
+      - name: Export IPA
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store-connect</string>
+            <key>destination</key>
+            <string>export</string>
+            <key>teamID</key>
+            <string>${APPLE_TEAM_ID}</string>
+            <key>signingStyle</key>
+            <string>automatic</string>
+            <key>uploadSymbols</key>
+            <true/>
+            <key>manageAppVersionAndBuildNumber</key>
+            <false/>
+          </dict>
+          </plist>
+          EOF
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/Nostos.xcarchive" \
+            -exportPath "$RUNNER_TEMP/nostos-export" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$HOME/private_keys/AuthKey_${ASC_KEY_ID}.p8" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+
       - name: Upload to App Store Connect
         if: github.event_name == 'workflow_dispatch' && inputs.upload
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-          ASC_KEY_BASE64: ${{ secrets.ASC_KEY_BASE64 }}
-        shell: bash
         run: |
           set -euo pipefail
-          umask 077
-          : "${ASC_KEY_ID:?Missing ASC_KEY_ID}"
-          : "${ASC_ISSUER_ID:?Missing ASC_ISSUER_ID}"
-          : "${ASC_KEY_BASE64:?Missing ASC_KEY_BASE64}"
-          key_dir=$(mktemp -d "$RUNNER_TEMP/nostos-upload.XXXXXX")
-          trap 'rm -rf "$key_dir"' EXIT
-          printf '%s' "$ASC_KEY_BASE64" | base64 -D > "$key_dir/AuthKey_$ASC_KEY_ID.p8"
-          unset ASC_KEY_BASE64
-          ipa=$(find "$RUNNER_TEMP/nostos-export" -maxdepth 1 -name '*.ipa' -print -quit)
+          ipa=$(find "$RUNNER_TEMP/nostos-export" -name '*.ipa' -print -quit)
           test -n "$ipa"
-          API_PRIVATE_KEYS_DIR="$key_dir" xcrun altool --upload-app --type ios --file "$ipa" --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
+          xcrun altool --upload-app \
+            --type ios \
+            --file "$ipa" \
+            --apiKey "$ASC_KEY_ID" \
+            --apiIssuer "$ASC_ISSUER_ID"

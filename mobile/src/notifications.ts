@@ -27,7 +27,7 @@ export function notifyIfDue(snapshot: Snapshot): Promise<void> {
     const key = [snapshot.lastDriveAt, days].join('/');
     if ((await SecureStore.getItemAsync(sentKey)) === key) return;
     await Notifications.scheduleNotificationAsync({
-      content: { title: 'Garage Monitor', body: `Range Rover: at least ${days} days since the last confirmed drive.` },
+      content: { title: 'Nostos', body: `Range Rover: at least ${days} days since the last confirmed drive.` },
       trigger: null,
     });
     await SecureStore.setItemAsync(sentKey, key);
