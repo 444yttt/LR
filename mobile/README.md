@@ -1,6 +1,6 @@
 # Garage Monitor for iOS
 
-Expo + TypeScript in `mobile/`. The Garage and three detail screens follow [Final / Light Floor](https://www.figma.com/design/wfL98bFPY6pTSLFFjQInqU?node-id=59-56). The illustrations are generated side-profile vehicle assets. The floor, contact shadow, and vehicle images are drawn independently.
+Expo + TypeScript in `mobile/`. The Garage and three detail screens follow [Final / Light Floor](https://www.figma.com/design/wfL98bFPY6pTSLFFjQInqU?node-id=59-56). The vehicles are the Range Rover (L460, black), Ferrari 296 (white) and BMW X7 (black). Their side profiles are licensed Wikimedia Commons photos, cut out to transparent PNGs; sources, licenses and edits are in `assets/vehicles/ATTRIBUTION.md`, and the credits appear in the app under **＋ → Image credits**. The floor, contact shadow, and vehicle images are drawn independently.
 
 ## Run locally
 
@@ -33,7 +33,7 @@ The gateway in `cloudflare/mobile-gateway` reads the existing D1 database. Confi
 ## Screens
 
 - **Garage**: pull to refresh when signed in. The Range Rover status line shows `Updated N min ago` when the report is fresh. The **＋** button opens an Add vehicle sheet. It lists the data sources and says that adding vehicles is unavailable in this build.
-- **Vehicle detail**: the status line and footer open **Connection**. The status panel opens **Vehicle status**. The action row opens **Recent drives** (Range Rover) or **Connection** (Ferrari 296, BMW M4; both stay not connected / setup required, with no sample values).
+- **Vehicle detail**: the status line and footer open **Connection**. The status panel opens **Vehicle status**. The action row opens **Recent drives** for a vehicle with data (Range Rover) or **Connection** (Ferrari 296, BMW X7; both stay not connected / setup required, with no sample values).
 - **Recent drives / Drive**: these list only verified trip end times, grouped by JST day. The gateway sends only end times. Duration, distance, and efficiency appear if the gateway later sends trip objects (`{ endedAt, startedAt, distanceKm, efficiencyLPer100Km }`). Until then they show as not reported.
 - **Connection**: shows the state (not configured, signed out, sign-in failed, not updated yet, updating, update failed, sign-in expired, JLR authorization expired, collector error, waiting, stale, connected), the last successful update, and the last check on this iPhone. It also has the retry / sign-in / refresh action and sign-out. Sign-out clears the session on the device only.
 - **Notifications**: shows the iOS permission state and has toggles for inactivity alerts (master, 7 days, 14 days). When permission is denied it links to iOS Settings.
@@ -42,11 +42,20 @@ State presentation lives in `src/garageModel.ts` and is covered by `test/garageM
 
 ## Deep links
 
-`garage-monitor://` opens the Garage. `garage-monitor://vehicle/<range-rover|ferrari-296|bmw-m4>[/status|/connection]`, `garage-monitor://drives` and `garage-monitor://notifications` open those screens. `garage-monitor://auth` stays the OAuth redirect and is never routed to a screen.
+`garage-monitor://` opens the Garage. `garage-monitor://vehicle/<range-rover|ferrari-296|bmw-x7>[/status|/connection|/drives]`, `garage-monitor://drives` (Range Rover) and `garage-monitor://notifications` open those screens. `garage-monitor://auth` stays the OAuth redirect and is never routed to a screen.
 
 ## Motion
 
-Motion uses react-native-reanimated 4 (UI-thread worklets), react-native-gesture-handler, and expo-haptics. Opening a vehicle is a shared-element transition: the car, the floor ellipse, and the contact shadow fly from the card to the detail stage as three separate layers. The car settles on landing. Swiping from the left edge scrubs the transition back. With Reduce Motion on, screens change without animation and metrics appear without counting.
+Motion uses react-native-reanimated 4 (UI-thread worklets), react-native-gesture-handler, and expo-haptics. Opening a vehicle is a shared-element transition. The car, the floor ellipse, and the contact shadow fly from the card to the detail stage as three separate layers, all driven by one UI-thread progress value:
+
+- The flight's easing and arc both reach zero velocity on the last frame, so the car comes to rest there. There is no separate settle animation and no React state change on landing.
+- On the way back the hero hands over to the card's own stage inside the last ~2 % of progress (`handoffWindow` in `src/ui/stage.tsx`). The hero targets the card's pixel-rounded rect and the Garage's live scroll offset.
+- A back tap during the flight reverses it, and swiping from the left edge scrubs it. A cancelled swipe glides back without overshooting.
+- With Reduce Motion on, screens change in a single frame and metrics appear without counting.
+
+## Demo data (preview builds and tests only)
+
+`src/demo/fixtures.ts` holds clearly marked synthetic fixtures for all three cars in every state: live, loading, not fetched, update failed, auth expired, and empty. They are used by the tests, and by the app only when it is built or started with `EXPO_PUBLIC_DEMO_DATA=1`, for example `EXPO_PUBLIC_DEMO_DATA=1 npx expo start`. In that mode the Garage reads "3 VEHICLES · DEMO DATA" and screens say "Demo data". A **DEMO DATA · <state>** pill at the bottom cycles through the states. Without that exact flag (the default, and what the iOS workflows build), the gate in `App.tsx` is a build-time constant `false`. Metro then drops the demo module, so the fixtures are not in the production bundle at all, and Ferrari 296 and BMW X7 show as not connected with no values. `test/demo.test.ts` checks the gate and the import graph.
 
 ## Notifications
 

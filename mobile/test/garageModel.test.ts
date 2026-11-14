@@ -91,22 +91,36 @@ test('drive detail values are formatted only when reported', () => {
   assert.equal(backwards.distanceKm, null);
 });
 
-test('health is unknown unless a fresh report says otherwise; unconnected vehicles never show data', () => {
-  assert.equal(healthView(0, null, now).title, 'Not checked');
-  assert.equal(healthView(0, fresh({ health: 'good' }), now).title, 'No reported issues');
-  assert.equal(healthView(0, fresh({ health: 'service-required' }), now).title, 'Service required');
-  assert.match(healthView(0, fresh({ health: 'good', fetchedAt: ago(40 * 3600_000) }), now).detail, /too old/);
-  assert.equal(healthView(1, fresh({ health: 'good' }), now).title, 'Not connected');
-  assert.equal(healthView(2, fresh({ health: 'good' }), now).title, 'Setup required');
-  assert.deepEqual(metrics(1, fresh({ rangeKm: 500, fuelPercent: 80 }), now), { rangeKm: null, fuelPercent: null, lastDrive: null, idleDays: null });
-  assert.equal(metrics(0, fresh({ rangeKm: 500 }), now).rangeKm, 500);
+test('health is unknown unless a fresh report says otherwise; vehicles without a feed never show data', () => {
+  const report = (extra: Record<string, unknown>) => input({ snapshot: fresh(extra) });
+  assert.equal(healthView(0, input({}), now).title, 'Not checked');
+  assert.equal(healthView(0, report({ health: 'good' }), now).title, 'No reported issues');
+  assert.equal(healthView(0, report({ health: 'good' }), now).caption, 'Reported by JLR diagnostics');
+  assert.equal(healthView(0, report({ health: 'service-required' }), now).title, 'Service required');
+  assert.match(healthView(0, report({ health: 'service-required' }), now).detail, /Land Rover retailer/);
+  assert.match(healthView(0, report({ health: 'good', fetchedAt: ago(40 * 3600_000) }), now).detail, /too old/);
+  assert.equal(healthView(1, null, now).title, 'Not connected');
+  assert.equal(healthView(2, null, now).title, 'Setup required');
+  assert.equal(healthView(2, report({ health: 'attention-required' }), now).caption, 'Reported by BMW diagnostics');
+  assert.deepEqual(metrics(null, now), { rangeKm: null, fuelPercent: null, lastDrive: null, idleDays: null });
+  assert.equal(metrics(report({ rangeKm: 500 }), now).rangeKm, 500);
+});
+
+test('connection copy names the vehicle and its own source', () => {
+  assert.match(connectionState(input({ phase: 'signedOut', hasSession: false }), now).detail, /Range Rover/);
+  assert.match(connectionState(input({ phase: 'signedOut', hasSession: false }), now, 2).detail, /BMW X7/);
+  assert.equal(connectionState(input({ snapshot: fresh({ status: 'error' }) }), now).title, 'JLR update failed');
+  assert.equal(connectionState(input({ snapshot: fresh({ status: 'error' }) }), now, 1).title, 'Ferrari update failed');
 });
 
 test('deep links resolve to screens and never treat the OAuth redirect as a screen', () => {
   assert.deepEqual(routeFromUrl('garage-monitor://'), { name: 'garage' });
   assert.deepEqual(routeFromUrl('garage-monitor://vehicle/range-rover'), { name: 'vehicle', vehicle: 0 });
-  assert.deepEqual(routeFromUrl('garage-monitor://vehicle/bmw-m4/connection'), { name: 'connection', vehicle: 2 });
-  assert.deepEqual(routeFromUrl('garage-monitor://drives?x=1'), { name: 'drives' });
+  assert.deepEqual(routeFromUrl('garage-monitor://vehicle/bmw-x7/connection'), { name: 'connection', vehicle: 2 });
+  assert.equal(routeFromUrl('garage-monitor://vehicle/bmw-m4'), null);
+  assert.deepEqual(routeFromUrl('garage-monitor://vehicle/ferrari-296/drives'), { name: 'drives', vehicle: 1 });
+  assert.deepEqual(routeFromUrl('garage-monitor://drives?x=1'), { name: 'drives', vehicle: 0 });
+  assert.deepEqual(stackFor({ name: 'drive', vehicle: 2, endedAt: ago(0) }).map(route => route.name), ['vehicle', 'drives', 'drive']);
   assert.deepEqual(routeFromUrl('garage-monitor:///notifications'), { name: 'notifications' });
   assert.equal(routeFromUrl('garage-monitor://auth?code=abc'), null);
   assert.equal(routeFromUrl('garage-monitor://vehicle/unknown'), null);

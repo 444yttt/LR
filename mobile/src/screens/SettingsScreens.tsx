@@ -5,9 +5,10 @@ import {
   VEHICLES, connectionState, displayDate, healthView, permissionCopy, relativeTime,
   type AlertPrefs, type PermissionState,
 } from '../garageModel.ts';
+import { vehicleCredits } from '../credits';
 import { loadAlertPrefs, notifyIfDue, permissionState, saveAlertPrefs } from '../notifications';
 import { PressScale, Skeleton, Toggle, haptics } from '../ui/motion';
-import { ActionRow, Card, Field, Headline, Note, Rule, SectionLabel, SubScreen, modelInput, useData } from '../ui/parts';
+import { ActionRow, Card, Field, Headline, Note, Rule, SectionLabel, SubScreen, useData, useFeed } from '../ui/parts';
 import { useNav } from '../ui/stack';
 import { ink, medium, mute, page, regular, rule, semibold, typeStyle, useNow, usePx, white, type Px } from '../ui/theme';
 
@@ -21,12 +22,12 @@ const categories = [
 export function StatusScreen({ vehicle }: { vehicle: number }) {
   const px = usePx();
   const now = useNow();
-  const data = useData();
   const info = VEHICLES[vehicle];
-  const connection = connectionState(modelInput(data), now);
-  const health = healthView(vehicle, data.snapshot, now);
-  const loading = vehicle === 0 && connection.loading;
-  const reported = health.reported ? data.snapshot?.health ?? null : null;
+  const feed = useFeed(vehicle);
+  const snapshot = feed?.snapshot ?? null;
+  const health = healthView(vehicle, feed, now);
+  const loading = feed ? connectionState(feed, now, vehicle).loading : false;
+  const reported = health.reported ? snapshot?.health ?? null : null;
   return <SubScreen title="Vehicle status" caption={info.name}>
     <Card px={px} style={{ marginTop: px(24) }}>
       <Headline px={px} eyebrow="Vehicle status" title={health.title} caption={health.caption}
@@ -34,7 +35,7 @@ export function StatusScreen({ vehicle }: { vehicle: number }) {
       <Rule px={px} />
       <Text style={typeStyle(px, 12, regular, mute, { margin: px(14), marginTop: px(14), marginBottom: px(18) })}>{health.detail}</Text>
     </Card>
-    {info.connected && <>
+    {feed && <>
       <SectionLabel px={px} value="Categories" />
       <Card px={px} style={{ marginTop: px(10) }}>
         {categories.map((category, i) => {
@@ -50,13 +51,15 @@ export function StatusScreen({ vehicle }: { vehicle: number }) {
         })}
       </Card>
       <Card px={px}>
-        <Field px={px} label="Health reported" value={health.reported && data.snapshot?.fetchedAt ? displayDate(data.snapshot.fetchedAt) + ' JST' : null}
-          caption={health.reported ? relativeTime(data.snapshot?.fetchedAt, now) : 'No current health report'} />
+        <Field px={px} label="Health reported" value={health.reported && snapshot?.fetchedAt ? displayDate(snapshot.fetchedAt) + ' JST' : null}
+          caption={health.reported ? relativeTime(snapshot?.fetchedAt, now) : 'No current health report'} />
         <Rule px={px} />
         <Field px={px} label="Fault codes and service items" value="Not available" caption="Not read by this build" />
       </Card>
     </>}
-    <Note px={px}>{info.connected ? 'Health comes only from JLR diagnostics on a fresh report. Unknown is never shown as healthy.' : 'Live vehicle data unavailable'}</Note>
+    <Note px={px}>{feed
+      ? (feed.demo ? 'Demo data: synthetic values for testing, not from the vehicle. ' : '') + 'Health comes only from ' + info.diagnostics + ' on a fresh report. Unknown is never shown as healthy.'
+      : 'Live vehicle data unavailable'}</Note>
   </SubScreen>;
 }
 
@@ -66,7 +69,8 @@ export function ConnectionScreen({ vehicle }: { vehicle: number }) {
   const data = useData();
   const nav = useNav();
   const info = VEHICLES[vehicle];
-  if (!info.connected) {
+  const feed = useFeed(vehicle);
+  if (!feed) {
     return <SubScreen title="Connection" caption={info.name}>
       <Card px={px} style={{ marginTop: px(24) }}>
         <Headline px={px} eyebrow="State" title={info.offlineTitle} caption={info.offlineCaption} />
@@ -82,9 +86,9 @@ export function ConnectionScreen({ vehicle }: { vehicle: number }) {
     </SubScreen>;
   }
 
-  const connection = connectionState(modelInput(data), now);
-  const snapshot = data.snapshot;
-  const busy = data.phase === 'loading' || data.phase === 'signingIn';
+  const connection = connectionState(feed, now, vehicle);
+  const snapshot = feed.snapshot;
+  const busy = feed.phase === 'loading' || feed.phase === 'signingIn';
   const primary = connection.action === 'signIn' ? { title: 'Sign in', run: () => void data.signIn(), disabled: !data.canSignIn || busy }
     : connection.action === 'retrySetup' ? { title: 'Retry sign-in setup', run: data.retryDiscovery, disabled: false }
     : connection.action === 'refresh' ? { title: connection.kind === 'updateFailed' ? 'Retry update' : 'Refresh now', run: () => void data.refresh(), disabled: busy }
@@ -92,13 +96,13 @@ export function ConnectionScreen({ vehicle }: { vehicle: number }) {
   const signOut = () => {
     const run = () => { haptics.warning(); void data.signOut(); };
     if (Platform.OS === 'web') { run(); return; }
-    Alert.alert('Sign out of Nostos?', 'Vehicle data is removed from this iPhone. The JLR connection on the collector is not changed.', [
+    Alert.alert('Sign out of Nostos?', 'Vehicle data is removed from this iPhone. The ' + info.sourceShort + ' connection on the collector is not changed.', [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Sign out', style: 'destructive', onPress: run },
     ]);
   };
 
-  return <SubScreen title="Connection" caption={info.name + ' · JLR Data Hub'}>
+  return <SubScreen title="Connection" caption={info.name + ' · ' + (feed.demo ? 'Demo data' : info.source)}>
     <Card px={px} style={{ marginTop: px(24) }}>
       <Headline px={px} eyebrow="State" title={connection.title} caption={connection.detail} />
     </Card>
@@ -108,16 +112,18 @@ export function ConnectionScreen({ vehicle }: { vehicle: number }) {
       <Field px={px} label="Last successful update" value={snapshot?.fetchedAt ? displayDate(snapshot.fetchedAt) + ' JST' : null}
         caption={snapshot?.fetchedAt ? 'Vehicle report collected ' + (relativeTime(snapshot.fetchedAt, now) ?? '') : 'No verified vehicle update available'} />
       <Rule px={px} />
-      <Field px={px} label="Last checked on this iPhone" value={relativeTime(data.lastSyncedAt, now)}
-        caption={data.lastSyncedAt ? null : 'Not checked since the app opened'} />
+      <Field px={px} label="Last checked on this iPhone" value={relativeTime(feed.lastSyncedAt, now)}
+        caption={feed.lastSyncedAt ? null : 'Not checked since the app opened'} />
       <Rule px={px} />
       <Field px={px} label="Access" value="Read-only" caption="Nostos never locks, unlocks, starts, or locates the vehicle." />
     </Card>
-    <SectionLabel px={px} value="Alerts" />
-    <ActionRow px={px} title="Notifications" onPress={() => nav.push({ name: 'notifications' })} />
-    {data.hasSession && <ActionRow px={px} title="Sign out" onPress={signOut} chevron={false} disabled={data.phase === 'signingIn'} />}
+    {vehicle === 0 && <>
+      <SectionLabel px={px} value="Alerts" />
+      <ActionRow px={px} title="Notifications" onPress={() => nav.push({ name: 'notifications' })} />
+    </>}
+    {feed.hasSession && <ActionRow px={px} title="Sign out" onPress={signOut} chevron={false} disabled={data.phase === 'signingIn'} />}
     {data.notificationFailed && <Text style={typeStyle(px, 12, regular, mute, { marginTop: px(12), marginHorizontal: px(8) })}>Notification delivery could not be scheduled.</Text>}
-    <Note px={px}>{data.hasSession ? 'Signing out forgets the Nostos session on this iPhone only. ' : ''}JLR credentials are never stored in the app.</Note>
+    <Note px={px}>{feed.demo ? 'Demo data: synthetic values for testing. Nothing here comes from the vehicle. ' : ''}{feed.hasSession ? 'Signing out forgets the Nostos session on this iPhone only. ' : ''}{info.sourceShort} credentials are never stored in the app.</Note>
   </SubScreen>;
 }
 
@@ -222,6 +228,19 @@ export function AddVehicleSheet({ onClose }: { onClose: () => void }) {
           </View>
           <Text style={typeStyle(px, 10, medium, mute)}>{adapter.state.toUpperCase()}</Text>
         </View>
+      </View>)}
+    </Card>
+    <SectionLabel px={px} value="Image credits" />
+    <Card px={px} style={{ marginTop: px(10) }}>
+      {vehicleCredits.map((credit, i) => <View key={credit.file}>
+        {i > 0 && <Rule px={px} />}
+        <PressScale accessibilityRole="link" accessibilityLabel={credit.vehicle + ' photo by ' + credit.author + ', ' + credit.license}
+          accessibilityHint="Opens the source page" onPress={() => void Linking.openURL(credit.source)}
+          style={{ paddingHorizontal: px(14), paddingVertical: px(11), backgroundColor: white }}>
+          <Text style={typeStyle(px, 12, medium, ink)}>{credit.vehicle}</Text>
+          <Text style={typeStyle(px, 11, regular, mute, { marginTop: px(2) })}>{'Photo: ' + credit.author + ' · ' + credit.license + ' · Wikimedia Commons'}</Text>
+          <Text style={typeStyle(px, 11, regular, mute, { marginTop: px(1) })}>{credit.changes}</Text>
+        </PressScale>
       </View>)}
     </Card>
   </View>;

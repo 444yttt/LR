@@ -17,7 +17,8 @@ export type Entry = {
   scroll: SharedValue<number>;
   origin: Origin | null;
   hero: boolean;
-  landed: boolean;
+  /** Starts the push animation. Hero pushes wait for the hero image to load so the first moving frame is drawn. */
+  begin: () => void;
 };
 
 type Nav = {
@@ -54,48 +55,65 @@ export function Stack({ base, render, children }: { base: ReactNode; render: (en
   list.current = entries;
   const busy = useRef(false);
 
+  /** Key of a hero entry that is still flying in; a pop may reverse it mid-flight. */
+  const flying = useRef<string | null>(null);
+
   const remove = useCallback((key: string) => {
     busy.current = false;
     setEntries(current => current.filter(entry => entry.key !== key));
   }, []);
+  // Landing changes no React state: the resting frame is already on screen, and a re-render here would only cost frames.
   const land = useCallback((key: string) => {
+    if (flying.current === key) flying.current = null;
     busy.current = false;
-    setEntries(current => current.map(entry => entry.key === key ? { ...entry, landed: true } : entry));
   }, []);
 
-  const make = (route: Route, origin: Origin | null, presented: boolean): Entry => ({
-    key: 'screen-' + nextKey++, route, origin,
-    hero: route.name === 'vehicle',
-    progress: makeMutable(presented ? 1 : 0),
-    scroll: makeMutable(0),
-    landed: presented,
-  });
+  const make = (route: Route, origin: Origin | null, presented: boolean): Entry => {
+    const progress = makeMutable(presented ? 1 : 0);
+    const key = 'screen-' + nextKey++;
+    const hero = route.name === 'vehicle';
+    let started = presented;
+    return {
+      key, route, origin, hero, progress, scroll: makeMutable(0),
+      begin: () => {
+        if (started) return;
+        started = true;
+        progress.value = withTiming(1, reduced ? { duration: 0 } : hero ? timing.heroIn : timing.push, finished => {
+          if (finished) scheduleOnRN(land, key);
+        });
+      },
+    };
+  };
 
   const push = useCallback((route: Route, origin: Origin | null = null) => {
     if (busy.current) return;
-    const entry = make(route, origin, reduced);
-    setEntries(current => [...current, entry]);
-    if (reduced) return;
+    const entry = make(route, origin, false);
     busy.current = true;
-    const key = entry.key;
-    entry.progress.value = withTiming(1, entry.hero ? timing.heroIn : timing.push, finished => {
-      if (finished) scheduleOnRN(land, key);
-    });
+    setEntries(current => [...current, entry]);
+    if (entry.hero && origin && !reduced) {
+      flying.current = entry.key;
+      // HeroStage calls begin() once its image has loaded; this is only a fallback.
+      setTimeout(entry.begin, 160);
+    } else entry.begin();
   }, [reduced, land]);
 
   const pop = useCallback(() => {
     const top = list.current[list.current.length - 1];
-    if (!top || busy.current) return;
-    if (reduced) { remove(top.key); return; }
+    if (!top) return;
+    // A back tap during the hero's flight in reverses it from wherever it is; anything else waits.
+    if (busy.current && flying.current !== top.key) return;
+    flying.current = null;
     busy.current = true;
     const key = top.key;
-    top.progress.value = withTiming(0, top.hero ? timing.heroOut : timing.pop, finished => {
+    // Reduce Motion: jump to 0 on the UI thread first (the card shows in that same frame), then unmount.
+    top.progress.value = withTiming(0, reduced ? { duration: 0 } : top.hero ? timing.heroOut : timing.pop, finished => {
       if (finished) scheduleOnRN(remove, key);
     });
   }, [reduced, remove]);
 
   const reset = useCallback((routes: Route[]) => {
     busy.current = false;
+    flying.current = null;
     setEntries(routes.map(route => make(route, null, true)));
   }, []);
 
@@ -105,7 +123,7 @@ export function Stack({ base, render, children }: { base: ReactNode; render: (en
     <Layer next={entries[0]} top={!entries.length} width={width}>{base}</Layer>
     {entries.map((entry, i) => <EntryContext.Provider key={entry.key} value={entry}>
       <Layer entry={entry} next={entries[i + 1]} top={i === entries.length - 1} width={width} onCancelBack={() => { busy.current = false; }}
-        onBackStart={() => { busy.current = true; }} remove={remove}>
+        onBackStart={() => { busy.current = true; flying.current = null; }} remove={remove}>
         {render(entry)}
       </Layer>
     </EntryContext.Provider>)}
@@ -163,14 +181,15 @@ function Layer({ entry, next, top, width, children, onBackStart, onCancelBack, r
       .onEnd(event => {
         const done = event.translationX > distance * 0.33 || event.velocityX > 650;
         if (done) {
-          own.value = reduced ? 0 : withTiming(0, { duration: hero ? 380 : 260, easing: ease.out }, finished => {
+          own.value = withTiming(0, { duration: reduced ? 0 : hero ? 380 : 260, easing: ease.out }, finished => {
             if (finished) scheduleOnRN(remove, key);
           });
-          if (reduced) scheduleOnRN(remove, key);
           scheduleOnRN(soft);
         } else {
-          own.value = withSpring(1, springs.release);
-          if (onCancelBack) scheduleOnRN(onCancelBack);
+          // Timing, not a spring: progress must never pass 1, or the hero would overshoot its resting place.
+          own.value = withTiming(1, { duration: hero ? 260 : 220, easing: ease.out }, () => {
+            if (onCancelBack) scheduleOnRN(onCancelBack);
+          });
         }
       });
   }, [entry?.key, top, width, reduced]);
