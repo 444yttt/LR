@@ -3,6 +3,7 @@
     "name": "Nostos",
     "slug": "garage-monitor",
     "scheme": "garage-monitor",
+    "version": "1.0.0",
     "platforms": [
       "ios"
     ],
@@ -10,9 +11,14 @@
     "userInterfaceStyle": "light",
     "ios": {
       "bundleIdentifier": "studio.naus.garagemonitor",
-      "supportsTablet": false
+      "buildNumber": "1",
+      "supportsTablet": false,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "plugins": [
+      "./plugins/withLocalNotifications",
       "expo-notifications",
       "expo-secure-store"
     ],
