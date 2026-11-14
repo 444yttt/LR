@@ -31,5 +31,5 @@ test('unverified, stale, failed, and expired results suppress alerts', () => {
 });
 
 test('drive history is normalized, sorted, and deduplicated', () => {
-  assert.deepEqual(snapshot(1, { trips: [at(2), 'bad', at(1), at(1)] }).trips, [at(1), at(2)]);
+  assert.deepEqual(snapshot(1, { trips: [at(2), 'bad', at(1), at(1)] }).trips?.map(trip => trip.endedAt), [at(1), at(2)]);
 });

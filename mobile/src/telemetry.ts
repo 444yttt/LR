@@ -6,7 +6,20 @@ export type Snapshot = {
   fuelPercent: number | null;
   health: 'good' | 'attention-required' | 'service-required' | null;
   status: 'fresh' | 'stale' | 'error' | 'pending' | 'reauthorize';
-  trips: string[] | null;
+  trips: Drive[] | null;
+};
+
+/**
+ * One verified drive. The gateway currently reports only the trip end time
+ * (`trips: string[]`); the other fields are parsed when a richer object is sent
+ * and otherwise stay null so the UI shows them as not reported.
+ */
+export type Drive = {
+  endedAt: string;
+  startedAt: string | null;
+  distanceKm: number | null;
+  /** Average fuel consumption in L/100 km, when the source reports it. */
+  efficiencyLPer100Km: number | null;
 };
 
 export const DAY_MS = 86_400_000;
@@ -38,10 +51,37 @@ export function parseSnapshot(payload: unknown): Snapshot {
     rangeKm: numberIn(row.rangeKm, 2000),
     fuelPercent: numberIn(row.fuelPercent, 100),
     health: health === 'good' || health === 'attention-required' || health === 'service-required' ? health : null,
-    trips: Array.isArray(row.trips)
-      ? [...new Set(row.trips.map(dateValue).filter((date): date is string => date !== null))].sort().reverse()
-      : null,
+    trips: Array.isArray(row.trips) ? parseDrives(row.trips) : null,
   };
+}
+
+function parseDrive(value: unknown): Drive | null {
+  if (typeof value === 'string') {
+    const endedAt = dateValue(value);
+    return endedAt ? { endedAt, startedAt: null, distanceKm: null, efficiencyLPer100Km: null } : null;
+  }
+  if (!value || typeof value !== 'object') return null;
+  const item = value as Record<string, unknown>;
+  const endedAt = dateValue(item.endedAt);
+  if (!endedAt) return null;
+  const started = dateValue(item.startedAt);
+  const startedAt = started && Date.parse(started) < Date.parse(endedAt)
+    && Date.parse(endedAt) - Date.parse(started) <= DAY_MS ? started : null;
+  return {
+    endedAt, startedAt,
+    distanceKm: numberIn(item.distanceKm, 2000),
+    efficiencyLPer100Km: numberIn(item.efficiencyLPer100Km, 60),
+  };
+}
+
+/** Normalizes drives newest first, one entry per end time. */
+export function parseDrives(values: unknown[]): Drive[] {
+  const byEnd = new Map<string, Drive>();
+  for (const value of values) {
+    const drive = parseDrive(value);
+    if (drive && !byEnd.has(drive.endedAt)) byEnd.set(drive.endedAt, drive);
+  }
+  return [...byEnd.values()].sort((a, b) => b.endedAt.localeCompare(a.endedAt));
 }
 
 export function isFresh(snapshot: Snapshot, now: number): boolean {
