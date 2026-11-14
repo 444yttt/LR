@@ -16,7 +16,7 @@ function jwksFor(url) {
 
 export function snapshotStatus(snapshot, run, now) {
   if (run?.status === 'error') {
-    if (/^(?:token_http_\d+_(?:invalid_grant|invalid_token|invalid_client)|api_http_401)$/.test(run.error_code ?? '')) {
+    if (/^(?:token_http_\d+_(?:invalid_grant|invalid_token|invalid_client)|api_http_401)(?:[:_]|$)/.test(run.error_code ?? '')) {
       return 'reauthorize';
     }
     return 'error';

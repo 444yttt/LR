@@ -15,6 +15,7 @@ on:
     branches:
       - garage-monitor/ios-ad-hoc
       - nostos/testflight-asc-signing
+      - nostos/data-pipeline-hardening
     paths:
       - .github/workflows/ios-testflight.yml
       - mobile/**
@@ -31,6 +32,12 @@ jobs:
     env:
       CI: 'true'
       EXPO_NO_TELEMETRY: '1'
+      # Public Expo settings from repository Variables. An unset variable is empty,
+      # which leaves the app in its existing not-configured state.
+      EXPO_PUBLIC_GARAGE_API_URL: ${{ vars.EXPO_PUBLIC_GARAGE_API_URL }}
+      EXPO_PUBLIC_GARAGE_ISSUER: ${{ vars.EXPO_PUBLIC_GARAGE_ISSUER }}
+      EXPO_PUBLIC_GARAGE_CLIENT_ID: ${{ vars.EXPO_PUBLIC_GARAGE_CLIENT_ID }}
+      EXPO_PUBLIC_GARAGE_RESOURCE: ${{ vars.EXPO_PUBLIC_GARAGE_RESOURCE }}
     defaults:
       run:
         working-directory: mobile
@@ -103,6 +110,26 @@ jobs:
       - run: npm run check
       - run: npm test
       - run: npx expo prebuild --platform ios --clean --no-install
+
+      - name: Expose public Garage settings to Xcode
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, pathlib, shlex
+          keys = [
+              "EXPO_PUBLIC_GARAGE_API_URL",
+              "EXPO_PUBLIC_GARAGE_ISSUER",
+              "EXPO_PUBLIC_GARAGE_CLIENT_ID",
+              "EXPO_PUBLIC_GARAGE_RESOURCE",
+          ]
+          lines = []
+          for key in keys:
+              value = os.environ.get(key, "")
+              if "\n" in value or "\x00" in value:
+                  raise SystemExit(key + " must be a single line")
+              lines.append("export " + key + "=" + shlex.quote(value))
+          pathlib.Path("ios/.xcode.env.local").write_text("\n".join(lines) + "\n")
+          PY
 
       - name: Check prebuilt iOS project
         run: |

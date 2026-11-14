@@ -11,7 +11,9 @@ test('classifies collection states without inferring telemetry', () => {
   assert.equal(snapshotStatus(snapshot, null, now), 'fresh');
   assert.equal(snapshotStatus(snapshot, null, now + 48 * 3600000), 'stale');
   assert.equal(snapshotStatus(snapshot, { status: 'error', error_code: 'api_http_500' }, now), 'error');
+  assert.equal(snapshotStatus(snapshot, { status: 'error', error_code: 'api_http_403:journeys:www-use_dpop_nonce:scopes-openid' }, now), 'error');
   assert.equal(snapshotStatus(null, { status: 'error', error_code: 'token_http_400_invalid_grant' }, now), 'reauthorize');
+  assert.equal(snapshotStatus(null, { status: 'error', error_code: 'api_http_401:journeys:scopes-absent' }, now), 'reauthorize');
 });
 
 test('rejects unauthorized, expired and other-owner access before querying D1', async t => {
