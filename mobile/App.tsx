@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Image, Modal, Pressable, RefreshControl, ScrollView, StatusBar, StyleSheet, Text, View, type TextStyle } from 'react-native';
+import { Image, Modal, Pressable, RefreshControl, ScrollView, StatusBar, Text, View, useWindowDimensions, type TextStyle } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { useFonts, Inter_400Regular, Inter_500Medium, Inter_600SemiBold } from '@expo-google-fonts/inter';
 import { SvgXml } from 'react-native-svg';
@@ -9,55 +9,117 @@ import { enableInactivityAlerts, notifyIfDue } from './src/notifications';
 import { idleDays, isFresh } from './src/telemetry';
 
 const cars = [
-  { name: 'Range Rover', model: 'L460', image: require('./assets/range-rover-l460.png'), ratio: 1713 / 685, widths: [205, 281] },
-  { name: 'Ferrari 296', model: 'Ferrari', image: require('./assets/ferrari-296.png'), ratio: 1784 / 516, widths: [202, 286] },
-  { name: 'BMW M4', model: 'BMW', image: require('./assets/bmw-m4.png'), ratio: 1721 / 562, widths: [220, 304] },
+  { name: 'Range Rover', model: 'L460', image: require('./assets/range-rover-l460.png') },
+  { name: 'Ferrari 296', model: 'Ferrari', image: require('./assets/ferrari-296.png') },
+  { name: 'BMW M4', model: 'BMW', image: require('./assets/bmw-m4.png') },
 ];
-const palette = { page: '#f8f8f7', ink: '#1b1d20', secondary: '#73777d', line: '#e3e5e6', white: '#ffffff' };
+
+const page = '#F8F8F7';
+const ink = '#1B1D20';
+const mute = '#73777D';
+const rule = '#E3E5E6';
+const white = '#FFFFFF';
 const regular = 'Inter_400Regular';
 const medium = 'Inter_500Medium';
 const semibold = 'Inter_600SemiBold';
+const designWidth = 390;
+// Inter typo ascender 1984 + descender 494, unitsPerEm 2048. Cap tops then sit ~0.241em below the line top.
+const interLine = (1984 + 494) / 2048;
 const dateFormat = new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: 'Asia/Tokyo' });
 const displayDate = (date: string) => dateFormat.format(new Date(date));
 
-function Copy({ value, size = 12, font = regular, muted = false, style }: { value: string; size?: number; font?: string; muted?: boolean; style?: TextStyle }) {
-  return <Text style={[{ fontSize: size, fontFamily: font, color: muted ? palette.secondary : palette.ink }, style]}>{value}</Text>;
+type Px = (value: number) => number;
+
+function usePx(): Px {
+  const { width } = useWindowDimensions();
+  const scale = width > 0 ? width / designWidth : 1;
+  return (value) => value * scale;
 }
 
-function Stage({ index, detail = false }: { index: number; detail?: boolean }) {
-  const car = cars[index];
+const cardY = [156, 395, 634];
+const floors = [
+  { x: 16.5, y: 99.04, w: 292, h: 27 },
+  { x: 9, y: 128.12, w: 338, h: 56 },
+];
+// Contact-shadow SVGs include the layer-blur padding (radius 4 on cards, 6 on detail).
+const shadows = [
+  [
+    { x: 71.28, y: 109, w: 182.45, h: 6, blur: 4 },
+    { x: 72.61, y: 109, w: 179.78, h: 6, blur: 4 },
+    { x: 64.6, y: 109, w: 195.8, h: 6, blur: 4 },
+  ],
+  [
+    { x: 52.96, y: 152, w: 250.09, h: 8, blur: 6 },
+    { x: 50.73, y: 152, w: 254.54, h: 8, blur: 6 },
+    { x: 42.72, y: 152, w: 270.56, h: 8, blur: 6 },
+  ],
+];
+const profiles = [
+  [
+    { x: 60, y: 30.02, w: 205, h: 82 },
+    { x: 61.5, y: 53.57, w: 202, h: 58.4 },
+    { x: 52.5, y: 40.16, w: 220, h: 71.8 },
+  ],
+  [
+    { x: 37.5, y: 42.63, w: 281, h: 112.4 },
+    { x: 35, y: 72.28, w: 286, h: 82.7 },
+    { x: 26, y: 55.73, w: 304, h: 99.3 },
+  ],
+];
+
+function place(px: Px, x: number, y: number, w?: number, h?: number, radius?: number) {
+  return {
+    position: 'absolute' as const,
+    left: px(x),
+    top: px(y),
+    width: w === undefined ? undefined : px(w),
+    height: h === undefined ? undefined : px(h),
+    borderRadius: radius === undefined ? undefined : px(radius),
+  };
+}
+
+function typeStyle(px: Px, size: number, font: string, color: string, extra?: TextStyle): TextStyle {
+  return {
+    fontFamily: font,
+    fontSize: px(size),
+    lineHeight: px(size * interLine),
+    color,
+    letterSpacing: 0,
+    ...extra,
+  };
+}
+
+function At({ px, value, x, y, size, font = regular, color = ink, width }: { px: Px; value: string; x: number; y: number; size: number; font?: string; color?: string; width?: number }) {
+  return <Text style={typeStyle(px, size, font, color, { position: 'absolute', left: px(x), top: px(y), width: width === undefined ? undefined : px(width) })}>{value}</Text>;
+}
+
+function Stage({ px, index, detail = false }: { px: Px; index: number; detail?: boolean }) {
   const mode = detail ? 1 : 0;
-  const width = car.widths[mode];
-  const height = width / car.ratio;
-  const baseline = detail ? 155 : 112;
-  const floorHeight = detail ? 56 : 27;
-  const shadowHeight = detail ? 20 : 14;
-  return <View style={[styles.stage, { height: detail ? 204 : 121 }]} accessible={false}>
-    <View pointerEvents="none" style={[styles.artLayer, { top: baseline - floorHeight * .48 }]}>
-      <SvgXml xml={floorSvg[mode]} />
+  const floor = floors[mode];
+  const shadow = shadows[mode][index];
+  const profile = profiles[mode][index];
+  return <View style={place(px, detail ? 17 : 0, detail ? 208 : 0, detail ? 356 : 325, detail ? 204 : 121)} accessible={false} pointerEvents="none">
+    <View style={place(px, floor.x, floor.y, floor.w, floor.h)}>
+      <SvgXml xml={floorSvg[mode]} width="100%" height="100%" />
     </View>
-    <View pointerEvents="none" style={[styles.artLayer, { top: baseline - (detail ? 9 : 7), height: shadowHeight }]}>
-      <SvgXml xml={shadowSvg[mode][index]} />
+    <View style={place(px, shadow.x - shadow.blur, shadow.y - shadow.blur, shadow.w + shadow.blur * 2, shadow.h + shadow.blur * 2)}>
+      <SvgXml xml={shadowSvg[mode][index]} width="100%" height="100%" />
     </View>
-    <View pointerEvents="none" style={[styles.artLayer, { top: baseline - height }]}>
-      <Image source={car.image} style={{ width, height }} resizeMode="contain" accessible={false} />
-    </View>
+    <Image source={cars[index].image} resizeMode="contain" accessible={false} style={place(px, profile.x, profile.y, profile.w, profile.h)} />
   </View>;
 }
 
-function Metric({ title, value, large }: { title: string; value: string; large?: boolean }) {
-  return <View style={styles.metric}><Copy value={title} muted size={10} font={medium} />
-    <Copy value={value} size={large ? 25 : 15} font={semibold} style={{ marginTop: 8 }} /></View>;
-}
-
-function Action({ title, onPress, disabled }: { title: string; onPress: () => void; disabled?: boolean }) {
+function Action({ px, title, onPress, disabled, placed = false }: { px: Px; title: string; onPress: () => void; disabled?: boolean; placed?: boolean }) {
   return <Pressable accessibilityRole="button" accessibilityState={{ disabled }} disabled={disabled} onPress={onPress}
-    style={({ pressed }) => [styles.action, { opacity: pressed || disabled ? .55 : 1 }]}>
-    <Copy value={title} size={15} font={medium} /><Copy value="›" size={23} muted />
+    style={({ pressed }) => [placed ? place(px, 16, 747, 358, 65, 16) : { width: px(358), height: px(65), borderRadius: px(16), marginTop: px(20) },
+      { backgroundColor: white, opacity: pressed || disabled ? 0.55 : 1 }]}>
+    <Text style={typeStyle(px, 15, medium, ink, place(px, 16, 21))}>{title}</Text>
+    <Text style={typeStyle(px, 23, regular, mute, place(px, 322, 15))}>›</Text>
   </Pressable>;
 }
 
 function Garage() {
+  const px = usePx();
   const [index, setIndex] = useState<number | null>(null);
   const [sheet, setSheet] = useState<'drives' | 'connection' | 'add' | null>(null);
   const [alertStatus, setAlertStatus] = useState('');
@@ -85,117 +147,97 @@ function Garage() {
     : index === 1 ? 'Vehicle data source not connected' : 'Vehicle data setup is incomplete';
   const footer = isRover ? (snapshot?.fetchedAt ? 'Last successful update · ' + displayDate(snapshot.fetchedAt) + ' JST' : 'No verified vehicle update available')
     : 'Live vehicle data unavailable';
+  const frame = index === null ? 940 : 920;
 
-  return <SafeAreaView style={styles.page} edges={['top', 'bottom']}>
+  return <View style={{ flex: 1, backgroundColor: page }}>
     <StatusBar barStyle="dark-content" />
-    <ScrollView key={index ?? 'garage'} contentContainerStyle={styles.body}
+    <ScrollView key={index ?? 'garage'} style={{ flex: 1 }} contentInsetAdjustmentBehavior="never"
+      contentContainerStyle={{ height: px(frame) }}
       refreshControl={data.hasSession ? <RefreshControl refreshing={phase === 'loading'} onRefresh={() => void data.refresh()} /> : undefined}>
-      {index === null ? <>
-        <View style={styles.garageHeader}>
-          <Copy value="Garage" size={35} font={semibold} />
-          <Pressable accessibilityRole="button" accessibilityLabel="Add vehicle" hitSlop={10} onPress={() => setSheet('add')}>
-            <Copy value="＋" size={29} />
-          </Pressable>
-        </View>
-        <Copy value="3 VEHICLES" size={11} muted style={styles.garageCount} />
-        {cars.map((car, i) => <Pressable key={car.name} accessibilityRole="button" accessibilityLabel={car.name + ', ' + statuses[i]}
-          onPress={() => setIndex(i)} style={styles.card}>
-          <Copy value={car.name} size={20} font={semibold} />
-          <Copy value={statuses[i].toUpperCase()} size={10} muted font={medium} style={{ marginTop: 7 }} />
-          <Copy value="›" size={23} muted style={styles.cardChevron} />
-          <Stage index={i} />
-          <View style={styles.cardFooter}><Copy value={i === 0 ? 'LAST DRIVE' : 'CONNECTION'} size={9} muted />
-            <Copy value={i === 0 ? (lastDrive ?? 'UNVERIFIED') : 'NO DATA'} size={10} font={medium} style={styles.cardFooterValue} /></View>
-        </Pressable>)}
-      </> : <>
-        <Pressable accessibilityRole="button" accessibilityLabel="Back to Garage" onPress={() => setIndex(null)} style={styles.back}>
-          <Copy value="‹" size={28} font={medium} />
+      {index === null ? <View style={{ height: px(940) }}>
+        <At px={px} value="Garage" x={22} y={58} size={35} font={semibold} />
+        <Pressable accessibilityRole="button" accessibilityLabel="Add vehicle" hitSlop={10} onPress={() => setSheet('add')} style={place(px, 338, 59, 32, 42)}>
+          <Text style={typeStyle(px, 27, regular, ink)}>＋</Text>
         </Pressable>
-        <View style={styles.vehicleHeader}>
-          <Copy value={cars[index].name} size={31} font={semibold} />
-          <Copy value={cars[index].model} size={12} muted style={{ marginTop: 3 }} />
-          <Pressable accessibilityRole="button" accessibilityLabel="Data connection status" onPress={() => setSheet('connection')} style={{ marginTop: 10 }}>
-            <Copy value={statuses[index].toUpperCase()} size={10} font={medium} muted />
-          </Pressable>
-        </View>
-        <Stage index={index} detail />
-        <View style={styles.snapshot}>
-          <View style={[styles.metricRow, styles.firstRow]}>
-            <Metric title="RANGE" value={isRover && snapshot?.rangeKm != null ? snapshot.rangeKm + ' km' : '— km'} large />
-            <Metric title="FUEL" value={isRover && snapshot?.fuelPercent != null ? snapshot.fuelPercent + ' %' : '— %'} large />
+        <At px={px} value="3 VEHICLES" x={24} y={109} size={11} font={medium} color={mute} />
+        {cars.map((car, i) => <Pressable key={car.name} accessibilityRole="button" accessibilityLabel={car.name + ', ' + statuses[i]}
+          onPress={() => setIndex(i)} style={[place(px, 16, cardY[i], 358, 225, 19), { backgroundColor: white }]}>
+          <At px={px} value={car.name} x={15} y={20} size={20} font={semibold} />
+          <Text style={typeStyle(px, 23, regular, mute, place(px, 325, 16))}>›</Text>
+          <At px={px} value={statuses[i].toUpperCase()} x={15} y={51} size={10} font={medium} color={mute} />
+          <View style={place(px, 18, 70, 325, 121)}>
+            <Stage px={px} index={i} />
           </View>
-          <View style={styles.metricRow}>
-            <Metric title="LAST DRIVE" value={isRover ? (lastDrive ?? '—') : '—'} />
-            <Metric title="IDLE" value={isRover && idle !== null ? idle + (idle === 1 ? ' day' : ' days') : '—'} />
-          </View>
-          <View pointerEvents="none" style={styles.metricDivider} />
-        </View>
-        <View style={styles.vehicleStatus}>
-          <Copy value="VEHICLE STATUS" size={10} font={medium} muted />
-          <Copy value={statusTitle} size={25} font={semibold} style={{ marginTop: 13 }} />
-          <Copy value={description} size={12} muted style={{ marginTop: 6 }} />
-        </View>
-        <Action title={isRover ? 'Recent drives' : 'Connection settings'} onPress={() => setSheet(isRover ? 'drives' : 'connection')} />
-        <View style={styles.footer}><Copy value={footer} size={10} muted /></View>
-      </>}
+          <View style={[place(px, 14, 192, 330, 1), { backgroundColor: rule }]} />
+          <At px={px} value={i === 0 ? 'LAST DRIVE' : 'CONNECTION'} x={14} y={200} size={9} font={medium} color={mute} />
+          <At px={px} value={i === 0 ? (lastDrive ?? 'UNVERIFIED') : 'NO DATA'} x={209} y={200} size={10} font={medium} width={130} />
+        </Pressable>)}
+      </View> : <View style={{ height: px(920) }}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Back to Garage" onPress={() => setIndex(null)} style={place(px, 14, 45, 50, 50)}>
+          <Text style={typeStyle(px, 28, medium, ink, place(px, 9, 7))}>‹</Text>
+        </Pressable>
+        <At px={px} value={cars[index].name} x={22} y={105} size={31} font={semibold} />
+        <At px={px} value={cars[index].model} x={23} y={145} size={12} color={mute} />
+        <Pressable accessibilityRole="button" accessibilityLabel="Data connection status" onPress={() => setSheet('connection')} hitSlop={8} style={place(px, 23, 170)}>
+          <Text style={typeStyle(px, 10, medium, mute)}>{statuses[index].toUpperCase()}</Text>
+        </Pressable>
+        <Stage px={px} index={index} detail />
+        <View style={[place(px, 16, 421, 358, 167, 18), { backgroundColor: white }]} />
+        <View style={[place(px, 190, 442, 1, 125), { backgroundColor: rule }]} />
+        <View style={[place(px, 30, 515, 328, 1), { backgroundColor: rule }]} />
+        <At px={px} value="RANGE" x={30} y={443} size={10} font={medium} color={mute} />
+        <At px={px} value={isRover && snapshot?.rangeKm != null ? snapshot.rangeKm + ' km' : '— km'} x={30} y={466} size={25} font={semibold} />
+        <At px={px} value="FUEL" x={204} y={443} size={10} font={medium} color={mute} />
+        <At px={px} value={isRover && snapshot?.fuelPercent != null ? snapshot.fuelPercent + ' %' : '— %'} x={204} y={466} size={25} font={semibold} />
+        <At px={px} value="LAST DRIVE" x={30} y={529} size={10} font={medium} color={mute} />
+        <At px={px} value={isRover ? (lastDrive ?? '—') : '—'} x={30} y={549} size={15} font={semibold} />
+        <At px={px} value="IDLE" x={204} y={529} size={10} font={medium} color={mute} />
+        <At px={px} value={isRover && idle !== null ? idle + (idle === 1 ? ' day' : ' days') : '—'} x={204} y={549} size={16} font={semibold} />
+        <View style={[place(px, 16, 606, 358, 121, 18), { backgroundColor: white }]} />
+        <At px={px} value="VEHICLE STATUS" x={30} y={626} size={10} font={medium} color={mute} />
+        <At px={px} value={statusTitle} x={30} y={652} size={25} font={semibold} />
+        <At px={px} value={description} x={30} y={690} size={12} color={mute} />
+        <Action px={px} placed title={isRover ? 'Recent drives' : 'Connection settings'} onPress={() => setSheet(isRover ? 'drives' : 'connection')} />
+        <View style={[place(px, 16, 838, 358, 1), { backgroundColor: rule }]} />
+        <At px={px} value={footer} x={22} y={852} size={10} color={mute} />
+      </View>}
     </ScrollView>
     <Modal visible={sheet !== null} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setSheet(null)}>
-      <SafeAreaView style={styles.page}>
-        <ScrollView contentContainerStyle={styles.body}>
-          <Action title="Done" onPress={() => setSheet(null)} />
-          <Copy value={sheet === 'drives' ? 'Recent drives' : sheet === 'add' ? 'Add vehicle' : 'Data connection'} size={28} font={semibold} style={{ marginVertical: 18 }} />
+      <SafeAreaView style={{ flex: 1, backgroundColor: page }}>
+        <ScrollView contentContainerStyle={{ paddingHorizontal: px(16), paddingBottom: px(24) }}>
+          <Action px={px} title="Done" onPress={() => setSheet(null)} />
+          <Text style={typeStyle(px, 28, semibold, ink, { marginVertical: px(18) })}>{sheet === 'drives' ? 'Recent drives' : sheet === 'add' ? 'Add vehicle' : 'Data connection'}</Text>
           {sheet === 'drives' ? <>
-            {!recentDrives?.length && <Copy value={recentDrives ? 'No recent drives available.' : 'Verified drive history is unavailable.'} muted size={14} />}
-            {recentDrives?.map(date => <View style={styles.action} key={date}><Copy value={displayDate(date) + ' JST'} size={15} /></View>)}
-          </> : sheet === 'add' ? <Copy value="Adding a vehicle is unavailable in this build." muted size={14} />
+            {!recentDrives?.length && <Text style={typeStyle(px, 14, regular, mute)}>{recentDrives ? 'No recent drives available.' : 'Verified drive history is unavailable.'}</Text>}
+            {recentDrives?.map(date => <View key={date} style={{ width: px(358), minHeight: px(65), borderRadius: px(16), backgroundColor: white, justifyContent: 'center', paddingHorizontal: px(16), marginTop: px(20) }}>
+              <Text style={typeStyle(px, 15, regular, ink)}>{displayDate(date) + ' JST'}</Text>
+            </View>)}
+          </> : sheet === 'add' ? <Text style={typeStyle(px, 14, regular, mute)}>Adding a vehicle is unavailable in this build.</Text>
           : isRover ? <>
-            <Copy value={roverStatus} size={17} font={medium} />
-            <Copy value={phase === 'unconfigured' ? 'Vehicle sign-in is not configured for this build.'
+            <Text style={typeStyle(px, 17, medium, ink)}>{roverStatus}</Text>
+            <Text style={typeStyle(px, 12, regular, mute, { marginVertical: px(12) })}>{phase === 'unconfigured' ? 'Vehicle sign-in is not configured for this build.'
               : snapshot?.status === 'reauthorize' ? 'Reconnect the JLR account before updating vehicle data.'
-              : phase === 'expired' ? 'Sign in again to restore access.' : footer} muted style={{ marginVertical: 12 }} />
+              : phase === 'expired' ? 'Sign in again to restore access.' : footer}</Text>
             {phase !== 'unconfigured' && (data.hasSession
-              ? <Action title="Refresh data" disabled={phase === 'loading'} onPress={() => void data.refresh()} />
+              ? <Action px={px} title="Refresh data" disabled={phase === 'loading'} onPress={() => void data.refresh()} />
               : data.discoveryFailed
-                ? <Action title="Retry sign-in setup" onPress={data.retryDiscovery} />
-                : <Action title="Sign in" disabled={!data.canSignIn || phase === 'signingIn'} onPress={() => void data.signIn()} />)}
-            <Action title="Enable inactivity alerts" onPress={() => void enableInactivityAlerts().then(async ok => {
+                ? <Action px={px} title="Retry sign-in setup" onPress={data.retryDiscovery} />
+                : <Action px={px} title="Sign in" disabled={!data.canSignIn || phase === 'signingIn'} onPress={() => void data.signIn()} />)}
+            <Action px={px} title="Enable inactivity alerts" onPress={() => void enableInactivityAlerts().then(async ok => {
               setAlertStatus(ok ? 'Inactivity alerts enabled on this device.' : 'Notifications are disabled in iOS Settings.');
               if (ok && snapshot) await notifyIfDue(snapshot);
             }).catch(() => setAlertStatus('Unable to enable or deliver notifications.'))} />
-            {!!alertStatus && <Copy value={alertStatus} muted style={{ marginTop: 10 }} />}
-            {data.notificationFailed && <Copy value="Notification delivery could not be scheduled." muted style={{ marginTop: 10 }} />}
-          </> : <Copy value={description} muted size={14} />}
+            {!!alertStatus && <Text style={typeStyle(px, 12, regular, mute, { marginTop: px(10) })}>{alertStatus}</Text>}
+            {data.notificationFailed && <Text style={typeStyle(px, 12, regular, mute, { marginTop: px(10) })}>Notification delivery could not be scheduled.</Text>}
+          </> : <Text style={typeStyle(px, 14, regular, mute)}>{description}</Text>}
         </ScrollView>
       </SafeAreaView>
     </Modal>
-  </SafeAreaView>;
+  </View>;
 }
 
 export default function App() {
   const [loaded, error] = useFonts({ Inter_400Regular, Inter_500Medium, Inter_600SemiBold });
-  if (!loaded && !error) return <View style={styles.page} />;
+  if (!loaded && !error) return <View style={{ flex: 1, backgroundColor: page }} />;
   return <SafeAreaProvider><Garage /></SafeAreaProvider>;
 }
-
-const styles = StyleSheet.create({
-  page: { flex: 1, backgroundColor: palette.page },
-  body: { width: '100%', maxWidth: 450, alignSelf: 'center', paddingHorizontal: 16, paddingBottom: 24 },
-  garageHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 6, paddingHorizontal: 6 },
-  garageCount: { marginLeft: 8, marginTop: 7, marginBottom: 32 },
-  card: { backgroundColor: palette.white, borderRadius: 18, marginBottom: 14, paddingTop: 18, paddingHorizontal: 14, minHeight: 225 },
-  cardChevron: { position: 'absolute', right: 23, top: 14 },
-  stage: { position: 'relative', justifyContent: 'center', overflow: 'hidden' },
-  artLayer: { position: 'absolute', width: '100%', alignItems: 'center' },
-  cardFooter: { borderTopWidth: 1, borderTopColor: palette.line, flexDirection: 'row', alignItems: 'center', minHeight: 27 },
-  cardFooterValue: { position: 'absolute', left: '59%' },
-  back: { alignSelf: 'flex-start', justifyContent: 'center', minHeight: 44, minWidth: 44, paddingLeft: 7 },
-  vehicleHeader: { marginHorizontal: 6, marginTop: 8, marginBottom: 24 },
-  snapshot: { backgroundColor: palette.white, borderRadius: 18, paddingHorizontal: 14, paddingVertical: 20, minHeight: 167, marginTop: 9 },
-  metricRow: { flexDirection: 'row', minHeight: 53 },
-  firstRow: { borderBottomWidth: 1, borderColor: palette.line, minHeight: 75, marginBottom: 12 },
-  metric: { flex: 1, paddingRight: 8 },
-  metricDivider: { width: 1, backgroundColor: palette.line, position: 'absolute', left: '48.6%', top: 20, bottom: 20 },
-  vehicleStatus: { marginTop: 18, minHeight: 121, borderRadius: 18, backgroundColor: palette.white, padding: 14, paddingTop: 20 },
-  action: { marginTop: 20, minHeight: 65, borderRadius: 16, backgroundColor: palette.white, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16 },
-  footer: { borderTopWidth: 1, borderTopColor: palette.line, marginTop: 26, paddingTop: 13, paddingHorizontal: 6 },
-});
