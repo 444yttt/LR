@@ -3,11 +3,111 @@
 const PROVIDER='jlr';
 const ORIGIN='https://data.jlr-vcdp.com';
 const TOKEN_URL='https://auth.jlr-vcdp.com/realms/public/protocol/openid-connect/token';
+// Node fetch, used by scripts/latest-journey.cjs, sends this User-Agent. Workers would otherwise
+// send Cloudflare-Workers, which the data host can reject with HTTP 403 and no DPoP challenge.
+const JLR_USER_AGENT='node';
 const encoder=new TextEncoder();
 const now=()=>new Date().toISOString();
 const b64url=buf=>btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
 const b64json=obj=>b64url(encoder.encode(JSON.stringify(obj)));
 const base64bytes=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
+const VIN_PATTERN=/^[A-HJ-NPR-Z0-9]{17}$/;
+const CORRELATION_HEADERS=['x-correlation-id','x-request-id','x-correlationid','correlation-id','request-id'];
+
+export function normaliseVin(value){
+  const vin=String(value??'').trim().replace(/\s+/g,'').toUpperCase();
+  if(!VIN_PATTERN.test(vin))throw Object.assign(new Error('invalid_vin'),{ingestionCode:'invalid_vin'});
+  return vin;
+}
+export function sanitizeIngestionCode(value,structured=false){
+  const source=structured?String(value||'unknown'):String(value||'unknown').replace(/[A-Za-z0-9_.:-]{24,}/g,'redacted');
+  const code=source
+    .replace(/eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g,'redacted')
+    .replace(/[A-HJ-NPR-Z0-9]{17}/gi,'redacted')
+    .replace(/[^A-Za-z0-9_.:-]/g,'_').replace(/_+/g,'_').replace(/^_+|_+$/g,'').slice(0,240);
+  return code||'unknown';
+}
+function safeToken(value,pattern){
+  if(typeof value!=='string'||!pattern.test(value))return null;
+  if(/[A-HJ-NPR-Z0-9]{17}/i.test(value))return null;
+  return value;
+}
+export function wwwAuthenticateError(header){
+  if(typeof header!=='string'||header.length>1024)return null;
+  const match=/error=(?:"([A-Za-z0-9_]{1,40})"|([A-Za-z0-9_]{1,40}))/.exec(header);
+  return safeToken((match?.[1]||match?.[2]||'').toLowerCase(),/^[a-z0-9_]{1,40}$/);
+}
+export function dpopNonce(headers){
+  const direct=headers.get('dpop-nonce');
+  if(typeof direct==='string'&&direct.length<=512&&/^[\x21-\x7E]+$/.test(direct))return direct;
+  const www=headers.get('www-authenticate')||'';
+  const match=/nonce="([^"]{1,512})"/.exec(www);
+  return match&&/^[\x21-\x7E]+$/.test(match[1])?match[1]:null;
+}
+export function shouldRetryDpop(attempt,challenge,nonce){
+  return attempt===0&&challenge==='use_dpop_nonce'&&typeof nonce==='string'&&nonce.length>0&&nonce.length<=512&&/^[\x21-\x7E]+$/.test(nonce);
+}
+export function correlationId(headers){
+  for(const name of CORRELATION_HEADERS){
+    const value=safeToken(headers.get(name),/^[A-Za-z0-9._:-]{1,80}$/);
+    if(value)return value;
+  }
+  return null;
+}
+export function safeContentType(header){
+  const media=String(header||'').split(';')[0].trim().toLowerCase();
+  if(!/^[a-z0-9!#$&^_.+-]{1,64}\/[a-z0-9!#$&^_.+-]{1,64}$/.test(media))return null;
+  return media.replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'')||null;
+}
+function decodeJwtPayload(token){
+  const part=String(token||'').split('.')[1];
+  if(!part)return null;
+  try{
+    const pad=part.replace(/-/g,'+').replace(/_/g,'/');
+    return JSON.parse(atob(pad+'='.repeat((4-pad.length%4)%4)));
+  }catch{return null;}
+}
+export function scopeNames(token){
+  const payload=decodeJwtPayload(token);
+  if(!payload||typeof payload!=='object')return [];
+  const raw=payload.scope??payload.scp;
+  const list=Array.isArray(raw)?raw:(typeof raw==='string'?raw.split(/[\s,]+/):[]);
+  const names=[];
+  for(const item of list){
+    if(typeof item!=='string'||!/^[A-Za-z0-9_.:/-]{1,64}$/.test(item)||/[A-HJ-NPR-Z0-9]{17}/i.test(item))continue;
+    const name=item.replace(/[^A-Za-z0-9_-]/g,'_');
+    if(name&&!names.includes(name))names.push(name);
+    if(names.length>=12)break;
+  }
+  return names;
+}
+export function buildApiErrorCode({status,endpoint,correlation,wwwError,oauthError,contentType,scopes}){
+  const http=Number.isInteger(status)&&status>=100&&status<=599?status:0;
+  const ep=/^[a-z0-9-]{1,32}$/.test(endpoint)?endpoint:'unknown';
+  const parts=['api_http_'+http,ep];
+  const corr=safeToken(correlation,/^[A-Za-z0-9._:-]{1,80}$/);
+  const www=safeToken(wwwError,/^[a-z0-9_]{1,40}$/);
+  const oauth=safeToken(oauthError,/^[a-z0-9_]{1,40}$/);
+  const type=safeToken(contentType,/^[a-z0-9_]{1,64}$/);
+  if(corr)parts.push('corr-'+corr);
+  if(www)parts.push('www-'+www);
+  if(oauth&&oauth!==www)parts.push('err-'+oauth);
+  if(type)parts.push('ct-'+type);
+  const scopePart=(Array.isArray(scopes)?scopes:[]).filter(name=>/^[A-Za-z0-9_-]{1,64}$/.test(name)&&!/[A-HJ-NPR-Z0-9]{17}/i.test(name)).slice(0,12);
+  parts.push('scopes-'+(scopePart.length?scopePart.join('.'):'absent'));
+  return sanitizeIngestionCode(parts.join(':'),true);
+}
+export function dpopClaims(method,url,nonce){
+  const u=new URL(url);
+  // htu is scheme, host, and path. Query and fragment stay out, matching latest-journey.cjs.
+  // ath is omitted: the proofs that return 200 from that script omit it too.
+  const claims={htm:method,htu:u.origin+u.pathname,iat:Math.floor(Date.now()/1000),jti:crypto.randomUUID()};
+  if(nonce)claims.nonce=nonce;
+  return claims;
+}
+export function jlrResourceHeaders(token,proof){
+  return {Authorization:'DPoP '+token,DPoP:proof,Accept:'application/json','User-Agent':JLR_USER_AGENT};
+}
 function assertConfigured(env){
   for(const field of ['JLR_CLIENT_ID','JLR_VIN','JLR_PRIVATE_KEY','JLR_REFRESH_TOKEN','JLR_VAULT_KEY'])
     if(!env[field])throw new Error('not_configured:'+field);
@@ -28,10 +128,7 @@ async function assertion(key,id){
 async function dpop(key,method,url,nonce){
   const jwk=await crypto.subtle.exportKey('jwk',key);
   const {kty,n,e}=jwk;
-  const u=new URL(url);
-  const payload={htm:method,htu:u.origin+u.pathname,jti:crypto.randomUUID(),iat:Math.floor(Date.now()/1000)};
-  if(nonce)payload.nonce=nonce;
-  return sign(key,{typ:'dpop+jwt',alg:'PS256',jwk:{kty,n,e}},payload);
+  return sign(key,{typ:'dpop+jwt',alg:'PS256',jwk:{kty,n,e}},dpopClaims(method,url,nonce));
 }
 async function vaultKey(raw){
   return crypto.subtle.importKey('raw',base64bytes(raw),'AES-GCM',false,['encrypt','decrypt']);
@@ -68,13 +165,30 @@ async function tokenRequest(env,privateKey,refreshToken){
     throw new Error('token_http_'+r.status+'_'+String(j.error||'unknown').slice(0,32));
   }
 }
-async function getJson(url,token,key){
-  for(let attempt=0,nonce;attempt<2;attempt++){
-    const r=await fetch(url,{headers:{Authorization:'DPoP '+token,DPoP:await dpop(key,'GET',url,nonce),Accept:'application/json'}});
-    if(r.ok)return r.json();
-    const next=r.headers.get('dpop-nonce');
-    if(attempt===0&&next){nonce=next;continue;}
-    throw new Error('api_http_'+r.status);
+async function safeBodyError(response){
+  if(safeContentType(response.headers.get('content-type'))!=='application_json')return null;
+  const length=Number(response.headers.get('content-length'));
+  if(Number.isFinite(length)&&length>4096)return null;
+  const text=await response.text();
+  if(text.length>4096)return null;
+  try{
+    const value=JSON.parse(text).error;
+    return typeof value==='string'&&/^[a-z0-9_]{1,40}$/i.test(value)?value.toLowerCase():null;
+  }catch{return null;}
+}
+async function getJson(url,token,key,endpoint){
+  let nonce;
+  for(let attempt=0;attempt<2;attempt++){
+    const response=await fetch(url,{method:'GET',headers:jlrResourceHeaders(token,await dpop(key,'GET',url,nonce))});
+    if(response.ok)return response.json();
+    const www=wwwAuthenticateError(response.headers.get('www-authenticate'));
+    const oauth=await safeBodyError(response);
+    const next=dpopNonce(response.headers);
+    if(shouldRetryDpop(attempt,www==='use_dpop_nonce'||oauth==='use_dpop_nonce'?'use_dpop_nonce':www,next)){nonce=next;continue;}
+    throw Object.assign(new Error('jlr_request_failed'),{ingestionCode:buildApiErrorCode({
+      status:response.status,endpoint,correlation:correlationId(response.headers),wwwError:www,oauthError:oauth,
+      contentType:safeContentType(response.headers.get('content-type')),scopes:scopeNames(token)
+    })});
   }
 }
 // Conservative signal mapping: missing/unsupported fields stay null, never inferred.
@@ -126,6 +240,7 @@ async function collect(env){
   await env.DB.prepare("INSERT INTO ingestion_runs(id,vehicle_id,source,status) VALUES(?,'range-l460','jlr','running')").bind(id).run();
   let n=0,pages=0,latest=null,complete=false;
   try{
+    const vin=normaliseVin(env.JLR_VIN);
     const priv=await importPrivate(env.JLR_PRIVATE_KEY);
     const vault=await vaultKey(env.JLR_VAULT_KEY);
     const current=await getRefresh(env,vault);
@@ -135,8 +250,8 @@ async function collect(env){
     const fingerprints=new Set();
     const tripEnds=new Set();
     for(let p=0;p<100;p++){
-      const url=ORIGIN+'/v1/vehicles/'+encodeURIComponent(env.JLR_VIN)+'/journeys?page='+p+'&size=20';
-      const data=await getJson(url,token.access_token,priv);
+      const url=ORIGIN+'/v1/vehicles/'+encodeURIComponent(vin)+'/journeys?page='+p+'&size=20';
+      const data=await getJson(url,token.access_token,priv,'journeys');
       const items=data?.items;
       if(!Array.isArray(items))throw new Error('unexpected_journey_schema');
       const fp=items.map(x=>String(x?.journeyId||'')+'|'+String(x?.endTime||'')).join(',');
@@ -155,11 +270,11 @@ async function collect(env){
     }
     if(!complete)throw new Error('pagination_incomplete');
     // Optional probes: failure in one category must not suppress the verified journey result.
-    const base=ORIGIN+'/v1/vehicles/'+encodeURIComponent(env.JLR_VIN);
+    const base=ORIGIN+'/v1/vehicles/'+encodeURIComponent(vin);
     const [status,diagnostics,ev]=await Promise.all([
-      getJson(base+'/status',token.access_token,priv).catch(()=>null),
-      getJson(base+'/diagnostics',token.access_token,priv).catch(()=>null),
-      getJson(base+'/ev',token.access_token,priv).catch(()=>null)
+      getJson(base+'/status',token.access_token,priv,'status').catch(()=>null),
+      getJson(base+'/diagnostics',token.access_token,priv,'diagnostics').catch(()=>null),
+      getJson(base+'/ev',token.access_token,priv,'ev').catch(()=>null)
     ]);
     const signals=normaliseJlr(status,diagnostics,ev);
     // Protect against missing data or stale API: never assert 'not driven' if there is no reliable journey end.
@@ -202,7 +317,7 @@ async function collect(env){
     }
     return {status:'complete',journeys:n,pages,verified:!!verified};
   }catch(e){
-    const code=String(e.message||'unknown').replace(/[^\w:-]/g,'_').slice(0,80);
+    const code=e?.ingestionCode?sanitizeIngestionCode(e.ingestionCode,true):sanitizeIngestionCode(e?.message||'unknown');
     await env.DB.prepare("UPDATE ingestion_runs SET status='error',finished_at=?,page_count=?,journey_count=?,error_code=? WHERE id=?").bind(now(),pages,n,code,id).run();
     await env.DB.prepare("UPDATE snapshots SET data_status='error',error_code=?,updated_at=? WHERE vehicle_id='range-l460'").bind(code,now()).run();
     return {status:'error',error:code};
