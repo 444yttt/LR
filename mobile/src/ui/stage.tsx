@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { PixelRatio, Platform, View } from 'react-native';
 import Animated, { interpolate, useAnimatedStyle, type SharedValue } from 'react-native-reanimated';
 import { SvgXml } from 'react-native-svg';
@@ -131,8 +132,10 @@ const rest = [{ translateX: 0 }, { translateY: 0 }, { scaleX: 1 }, { scaleY: 1 }
  *   `handoffWindow` (see useCardHandoff), so nothing waits for React and no frame shows both or neither.
  * `scrollOffset` is the live detail scroll position; it only matters while progress < 1 (i.e. while flying back).
  */
-export function HeroStage({ px, index, origin, progress, scrollOffset, onReady, top = 0 }: {
+export function HeroStage({ px, index, origin, progress, scrollOffset, onReady, top = 0, travel }: {
   px: Px; index: number; origin: Origin | null; progress: SharedValue<number>; scrollOffset: SharedValue<number>; onReady?: () => void;
+  /** Receives how far (pt, both screens unscrolled) the car moves down from its resting stage to the card. */
+  travel?: SharedValue<number>;
   /** Safe-area shift of the detail canvas this stage is placed in. */
   top?: number;
 }) {
@@ -141,6 +144,8 @@ export function HeroStage({ px, index, origin, progress, scrollOffset, onReady, 
   const ground = origin ? handoff(px, origin, floors[0], floor, undefined, top) : null;
   const contact = origin ? handoff(px, origin, shadows[0][index], shadow, undefined, top) : null;
   const garageScroll = origin?.scroll;
+  const carTravel = car ? car.ty : 0;
+  useEffect(() => { if (travel) travel.value = carTravel; }, [travel, carTravel]);
   const arc = px(4.8);
   // Without an origin (deep link), rise into place instead of flying from a card.
   const rise = px(18);

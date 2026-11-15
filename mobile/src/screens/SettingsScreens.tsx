@@ -104,21 +104,20 @@ export function ConnectionScreen({ vehicle }: { vehicle: number }) {
     ]);
   };
 
-  return <SubScreen title="Connection" caption={info.name + ' · ' + (feed.demo ? 'Demo data' : info.source)}>
+  // "Update now" sits in the NavBar's trailing slot, the same spot as on the vehicle detail.
+  return <SubScreen title="Connection" caption={info.name + ' · ' + (feed.demo ? 'Demo data' : info.source)}
+    trailing={updatable ? <UpdateNowButton px={px} vehicle={vehicle} /> : undefined}>
     <Card px={px} style={{ marginTop: px(24) }}>
       <Headline px={px} eyebrow="State" title={connection.title} caption={connection.detail} />
     </Card>
     {primary && <ActionRow px={px} title={primary.title} onPress={primary.run} disabled={primary.disabled} chevron={false}
       detail={busy && connection.action !== 'signIn' ? 'Updating…' : undefined} />}
-    {updatable && <View style={{ width: px(358), minHeight: px(65), marginTop: px(12), borderRadius: px(16), backgroundColor: white,
-      paddingHorizontal: px(16), paddingVertical: px(12), flexDirection: 'row', alignItems: 'center' }}>
-      <View style={{ flex: 1, marginRight: px(12) }}>
-        <Label style={typeStyle(px, 15, medium, ink)}>{connection.kind === 'updateFailed' ? 'Retry update' : 'Vehicle report'}</Label>
-        <View style={{ marginTop: px(3) }}>
-          <LiveStatusLine vehicle={vehicle} idle="Read the latest values from the vehicle" style={typeStyle(px, 12, regular, mute)} />
-        </View>
+    {updatable && <View accessible style={{ width: px(358), minHeight: px(65), marginTop: px(12), borderRadius: px(16), backgroundColor: white,
+      paddingHorizontal: px(16), paddingVertical: px(12), justifyContent: 'center' }}>
+      <Label style={typeStyle(px, 15, medium, ink)}>{connection.kind === 'updateFailed' ? 'Update failed' : 'Vehicle report'}</Label>
+      <View style={{ marginTop: px(3) }}>
+        <LiveStatusLine vehicle={vehicle} idle="Use Update now to read the latest values from the vehicle" style={typeStyle(px, 12, regular, mute)} />
       </View>
-      <UpdateNowButton px={px} vehicle={vehicle} style={{ borderWidth: 1, borderColor: rule }} />
     </View>}
     <Card px={px}>
       <Field px={px} label="Last successful update" value={snapshot?.fetchedAt ? displayDate(snapshot.fetchedAt) + ' JST' : null}
