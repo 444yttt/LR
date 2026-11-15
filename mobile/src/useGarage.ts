@@ -8,7 +8,9 @@ import {
 } from './liveRefresh.ts';
 import { notifyIfDue } from './notifications';
 import {
-  bootSession, clearSession, loadSession, phaseAfterRefreshFailure, saveSession, sessionFromToken,
+  AUTH_SCOPES, asPersistedSession, bootSession, clearSession, credentialsForRequest,
+  loadSession, markSessionEstablished, phaseAfterRefreshFailure, refreshInMs, retryUnauthorized,
+  saveSession, sessionFromToken, sessionWasEstablished,
   type PersistedSession, type SessionStore,
 } from './session';
 import { parseSnapshot, type Snapshot } from './telemetry';
@@ -59,7 +61,7 @@ export function useGarage() {
   const [request, , promptAsync] = Auth.useAuthRequest({
     clientId: clientId || 'unconfigured',
     redirectUri,
-    scopes: ['openid', 'email'],
+    scopes: [...AUTH_SCOPES],
     usePKCE: true,
     extraParams: resource ? { resource } : undefined,
   }, discovery);
@@ -85,18 +87,34 @@ export function useGarage() {
   const liveCurrent = useRef<AbortController | null>(null);
   /** Set when "Update now" had to renew the session first; the renewal then sends the POST instead of a GET. */
   const pendingLive = useRef(false);
+  /** Set after a 401 already triggered one silent refresh in this cycle. */
+  const authRetried = useRef(false);
+  /** True once a stored session has successfully loaded vehicle data. */
+  const established = useRef(false);
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const stopRefreshTimer = () => {
+    if (refreshTimer.current) {
+      clearTimeout(refreshTimer.current);
+      refreshTimer.current = null;
+    }
+  };
 
   const expire = useCallback(() => {
     current.current?.abort();
     liveCurrent.current?.abort();
     liveCurrent.current = null;
     pendingLive.current = false;
+    authRetried.current = false;
+    stopRefreshTimer();
     live({ type: 'reset' });
     session.current = null;
     pendingRefresh.current = null;
     setSnapshot(null);
     setLastSyncedAt(null);
-    setPhase(phaseAfterRefreshFailure());
+    const nextPhase = phaseAfterRefreshFailure(established.current);
+    established.current = false;
+    setPhase(nextPhase);
     void clearSession(secureStore);
   }, [live]);
 
@@ -113,14 +131,24 @@ export function useGarage() {
     setRefreshGeneration(value => value + 1);
   }, []);
 
+  const scheduleRenewal = useCallback((expiresAt: number, refreshToken: string | null) => {
+    stopRefreshTimer();
+    if (!refreshToken) return;
+    const delay = refreshInMs(expiresAt, Date.now());
+    if (delay == null) return;
+    refreshTimer.current = setTimeout(() => {
+      refreshTimer.current = null;
+      const creds = session.current;
+      if (creds?.refreshToken) armRefresh(creds.refreshToken);
+    }, delay);
+  }, [armRefresh]);
+
   const refresh = useCallback(async () => {
     const credentials = session.current;
     if (!api || !credentials || current.current || renewing.current) return;
-    if (credentials.expiresAt <= Date.now()) {
-      if (credentials.refreshToken) { armRefresh(credentials.refreshToken); return; }
-      expire();
-      return;
-    }
+    const decision = credentialsForRequest(asPersistedSession(credentials), Date.now());
+    if (decision.type === 'refresh') { armRefresh(decision.refreshToken); return; }
+    if (decision.type !== 'use') { expire(); return; }
     const controller = new AbortController();
     current.current = controller;
     setPhase('loading');
@@ -132,13 +160,27 @@ export function useGarage() {
         signal: controller.signal, redirect: 'error',
       });
       if (current.current !== controller || controller.signal.aborted) return;
-      if (response.status === 401) { expire(); return; }
+      if (response.status === 401) {
+        const refreshToken = session.current?.refreshToken ?? pendingRefresh.current;
+        if (retryUnauthorized(refreshToken, authRetried.current) === 'refresh' && refreshToken) {
+          authRetried.current = true;
+          armRefresh(refreshToken);
+          return;
+        }
+        expire();
+        return;
+      }
       if (!response.ok) throw new Error('Refresh failed');
       const next = parseSnapshot(await response.json());
       if (current.current !== controller || controller.signal.aborted) return;
       setSnapshot(next);
       setLastSyncedAt(Date.now());
       setPhase('ready');
+      authRetried.current = false;
+      if (!established.current) {
+        established.current = true;
+        void markSessionEstablished(secureStore).catch(() => { /* next successful fetch retries */ });
+      }
       notifyIfDue(next).then(() => setNotificationFailed(false), () => setNotificationFailed(true));
     } catch {
       if (current.current === controller && (timedOut || !controller.signal.aborted)) setPhase('failed');
@@ -160,16 +202,14 @@ export function useGarage() {
       if (liveRef.current.state !== 'requesting') await refresh();
       return;
     }
-    if (credentials.expiresAt <= Date.now()) {
-      if (credentials.refreshToken) {
-        pendingLive.current = true;
-        live({ type: 'start', now: Date.now() });
-        armRefresh(credentials.refreshToken);
-        return;
-      }
-      expire();
+    const decision = credentialsForRequest(asPersistedSession(credentials), Date.now());
+    if (decision.type === 'refresh') {
+      pendingLive.current = true;
+      live({ type: 'start', now: Date.now() });
+      armRefresh(decision.refreshToken);
       return;
     }
+    if (decision.type !== 'use') { expire(); return; }
     const started = epoch.current;
     const controller = new AbortController();
     liveCurrent.current = controller;
@@ -186,7 +226,17 @@ export function useGarage() {
       });
       if (stale()) return;
       const outcome = refreshOutcome(response.status);
-      if (outcome === 'expired') { expire(); return; }
+      if (outcome === 'expired') {
+        const refreshToken = session.current?.refreshToken ?? pendingRefresh.current;
+        if (retryUnauthorized(refreshToken, authRetried.current) === 'refresh' && refreshToken) {
+          authRetried.current = true;
+          pendingLive.current = true;
+          armRefresh(refreshToken);
+          return;
+        }
+        expire();
+        return;
+      }
       if (outcome === 'rateLimited') {
         const body: unknown = await response.json().catch(() => null);
         if (stale()) return;
@@ -199,6 +249,11 @@ export function useGarage() {
         setSnapshot(next);
         setLastSyncedAt(Date.now());
         setPhase('ready');
+        authRetried.current = false;
+        if (!established.current) {
+          established.current = true;
+          void markSessionEstablished(secureStore).catch(() => { /* next successful fetch retries */ });
+        }
         live({ type: 'success', now: Date.now() });
         notifyIfDue(next).then(() => setNotificationFailed(false), () => setNotificationFailed(true));
       }
@@ -232,6 +287,7 @@ export function useGarage() {
       const next = sessionFromToken(token, Date.now(), refreshToken);
       if (!next) throw new Error('Invalid session');
       await persist(next);
+      scheduleRenewal(next.expiresAt, next.refreshToken);
     } catch {
       if (started === epoch.current) expire();
       return;
@@ -243,23 +299,26 @@ export function useGarage() {
       pendingLive.current = false;
       await requestLive(true);
     } else await refresh();
-  }, [discovery, persist, refresh, requestLive, expire]);
+  }, [discovery, persist, refresh, requestLive, expire, scheduleRenewal]);
 
   useEffect(() => {
     if (!configured) return;
     let active = true;
-    loadSession(secureStore).then(stored => {
+    Promise.all([loadSession(secureStore), sessionWasEstablished(secureStore)]).then(([stored, wasEstablished]) => {
       if (!active) return;
       restored.current = true;
+      established.current = wasEstablished;
       const boot = bootSession(stored, Date.now());
       if (boot.type === 'use') {
         session.current = remember(boot.session);
+        scheduleRenewal(boot.session.expiresAt, boot.session.refreshToken);
         void refresh();
       } else if (boot.type === 'refresh') {
         armRefresh(boot.refreshToken);
       } else if (boot.type === 'expired') {
+        established.current = false;
         void clearSession(secureStore);
-        setPhase(phaseAfterRefreshFailure());
+        setPhase(phaseAfterRefreshFailure(wasEstablished));
       } else setPhase('signedOut');
     }).catch(() => {
       if (!active) return;
@@ -267,7 +326,7 @@ export function useGarage() {
       setPhase('signedOut');
     });
     return () => { active = false; };
-  }, [configured, refresh, armRefresh]);
+  }, [configured, refresh, armRefresh, scheduleRenewal]);
 
   useEffect(() => {
     const refreshToken = pendingRefresh.current;
@@ -303,10 +362,11 @@ export function useGarage() {
       if (!next) throw new Error('Invalid session');
       if (started !== epoch.current) return;
       await persist(next);
+      scheduleRenewal(next.expiresAt, next.refreshToken);
       await refresh();
     } catch { setPhase('failed'); }
     finally { signingIn.current = false; }
-  }, [configured, discovery, request, promptAsync, refresh, persist]);
+  }, [configured, discovery, request, promptAsync, refresh, persist, scheduleRenewal]);
 
   /** Forgets the Garage session on this device only. JLR access on the collector is untouched. */
   const signOut = useCallback(async () => {
@@ -316,6 +376,9 @@ export function useGarage() {
     liveCurrent.current?.abort();
     liveCurrent.current = null;
     pendingLive.current = false;
+    authRetried.current = false;
+    established.current = false;
+    stopRefreshTimer();
     live({ type: 'reset' });
     session.current = null;
     pendingRefresh.current = null;
@@ -327,7 +390,12 @@ export function useGarage() {
 
   useEffect(() => {
     const listener = AppState.addEventListener('change', value => { if (value === 'active') void refresh(); });
-    return () => { listener.remove(); current.current?.abort(); liveCurrent.current?.abort(); };
+    return () => {
+      listener.remove();
+      current.current?.abort();
+      liveCurrent.current?.abort();
+      stopRefreshTimer();
+    };
   }, [refresh]);
 
   return {
