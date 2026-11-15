@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState } from 'react';
-import { Text, useWindowDimensions, type TextStyle } from 'react-native';
+import { Text, useWindowDimensions, type TextProps, type TextStyle } from 'react-native';
+import { fontScaleCap } from './safeArea';
 
 // Final / Light Floor tokens (see /figma SPEC.md). No other fills are used on screens.
 export const page = '#F8F8F7';
@@ -39,8 +40,22 @@ export function typeStyle(px: Px, size: number, font: string, color: string, ext
   return { fontFamily: font, fontSize: px(size), lineHeight: px(size * interLine), color, letterSpacing: 0, ...extra };
 }
 
+/**
+ * Dynamic Type cap for the text below. Fixed canvases (Garage, vehicle detail) use the default; flowing screens
+ * provide `fontScaleCap.flow`. See safeArea.fontScaleCap.
+ */
+const FontCap = createContext<number>(fontScaleCap.canvas);
+export const FontCapProvider = FontCap.Provider;
+export const useFontCap = () => useContext(FontCap);
+
+/** Text that honours Dynamic Type up to the current screen's cap. Use instead of Text everywhere. */
+export function Label(props: TextProps) {
+  const cap = useContext(FontCap);
+  return <Text maxFontSizeMultiplier={cap} {...props} />;
+}
+
 export function At({ px, value, x, y, size, font = regular, color = ink, width }: { px: Px; value: string; x: number; y: number; size: number; font?: string; color?: string; width?: number }) {
-  return <Text style={typeStyle(px, size, font, color, { position: 'absolute', left: px(x), top: px(y), width: width === undefined ? undefined : px(width) })}>{value}</Text>;
+  return <Label style={typeStyle(px, size, font, color, { position: 'absolute', left: px(x), top: px(y), width: width === undefined ? undefined : px(width) })}>{value}</Label>;
 }
 
 /** Wall clock that ticks so "updated X ago" stays current while a screen is open. */

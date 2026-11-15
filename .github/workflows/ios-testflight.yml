@@ -16,6 +16,7 @@ on:
       - garage-monitor/ios-ad-hoc
       - nostos/testflight-asc-signing
       - nostos/data-pipeline-hardening
+      - nostos/safe-area
     paths:
       - .github/workflows/ios-testflight.yml
       - mobile/**

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, AppState, Linking, Platform, Text, View } from 'react-native';
+import { Alert, AppState, Linking, Platform, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   VEHICLES, connectionState, displayDate, healthView, permissionCopy, relativeTime,
@@ -10,7 +10,7 @@ import { loadAlertPrefs, notifyIfDue, permissionState, saveAlertPrefs } from '..
 import { PressScale, Skeleton, Toggle, haptics } from '../ui/motion';
 import { ActionRow, Card, Field, Headline, Note, Rule, SectionLabel, SubScreen, useData, useFeed } from '../ui/parts';
 import { useNav } from '../ui/stack';
-import { ink, medium, mute, page, regular, rule, semibold, typeStyle, useNow, usePx, white, type Px } from '../ui/theme';
+import { Label, ink, medium, mute, regular, rule, semibold, typeStyle, useNow, usePx, white, type Px } from '../ui/theme';
 
 const categories = [
   { key: 'good', title: 'No reported issues' },
@@ -33,7 +33,7 @@ export function StatusScreen({ vehicle }: { vehicle: number }) {
       <Headline px={px} eyebrow="Vehicle status" title={health.title} caption={health.caption}
         loading={loading ? <Skeleton width={px(170)} height={px(20)} radius={px(6)} style={{ marginTop: px(5) }} /> : undefined} />
       <Rule px={px} />
-      <Text style={typeStyle(px, 12, regular, mute, { margin: px(14), marginTop: px(14), marginBottom: px(18) })}>{health.detail}</Text>
+      <Label style={typeStyle(px, 12, regular, mute, { margin: px(14), marginTop: px(14), marginBottom: px(18) })}>{health.detail}</Label>
     </Card>
     {feed && <>
       <SectionLabel px={px} value="Categories" />
@@ -43,9 +43,9 @@ export function StatusScreen({ vehicle }: { vehicle: number }) {
           return <View key={category.title}>
             {i > 0 && <Rule px={px} />}
             <View accessible accessibilityLabel={category.title + (current ? ', current' : '')}
-              style={{ paddingHorizontal: px(14), height: px(52), flexDirection: 'row', alignItems: 'center' }}>
-              <Text style={typeStyle(px, 15, current ? semibold : regular, current ? ink : mute, { flex: 1 })}>{category.title}</Text>
-              {current && <Text style={typeStyle(px, 10, medium, ink)}>CURRENT</Text>}
+              style={{ paddingHorizontal: px(14), minHeight: px(52), flexDirection: 'row', alignItems: 'center' }}>
+              <Label style={typeStyle(px, 15, current ? semibold : regular, current ? ink : mute, { flex: 1 })}>{category.title}</Label>
+              {current && <Label style={typeStyle(px, 10, medium, ink)}>CURRENT</Label>}
             </View>
           </View>;
         })}
@@ -75,7 +75,7 @@ export function ConnectionScreen({ vehicle }: { vehicle: number }) {
       <Card px={px} style={{ marginTop: px(24) }}>
         <Headline px={px} eyebrow="State" title={info.offlineTitle} caption={info.offlineCaption} />
         <Rule px={px} />
-        <Text style={typeStyle(px, 12, regular, mute, { margin: px(14), marginBottom: px(18) })}>{info.adapterNote}</Text>
+        <Label style={typeStyle(px, 12, regular, mute, { margin: px(14), marginBottom: px(18) })}>{info.adapterNote}</Label>
       </Card>
       <Card px={px}>
         <Field px={px} label="Data source" value="None" />
@@ -122,7 +122,7 @@ export function ConnectionScreen({ vehicle }: { vehicle: number }) {
       <ActionRow px={px} title="Notifications" onPress={() => nav.push({ name: 'notifications' })} />
     </>}
     {feed.hasSession && <ActionRow px={px} title="Sign out" onPress={signOut} chevron={false} disabled={data.phase === 'signingIn'} />}
-    {data.notificationFailed && <Text style={typeStyle(px, 12, regular, mute, { marginTop: px(12), marginHorizontal: px(8) })}>Notification delivery could not be scheduled.</Text>}
+    {data.notificationFailed && <Label style={typeStyle(px, 12, regular, mute, { marginTop: px(12), marginHorizontal: px(8) })}>Notification delivery could not be scheduled.</Label>}
     <Note px={px}>{feed.demo ? 'Demo data: synthetic values for testing. Nothing here comes from the vehicle. ' : ''}{feed.hasSession ? 'Signing out forgets the Nostos session on this iPhone only. ' : ''}{info.sourceShort} credentials are never stored in the app.</Note>
   </SubScreen>;
 }
@@ -182,17 +182,17 @@ export function NotificationsScreen() {
       <ToggleRow px={px} title="After 14 days" caption="Repeat reminder" value={prefs?.after14 ?? true}
         disabled={!prefs?.enabled} onChange={after14 => prefs && void update({ ...prefs, after14 })} />
     </Card>
-    {!!message && <Text accessibilityLiveRegion="polite" style={typeStyle(px, 12, regular, mute, { marginTop: px(12), marginHorizontal: px(8) })}>{message}</Text>}
-    {data.notificationFailed && <Text style={typeStyle(px, 12, regular, mute, { marginTop: px(12), marginHorizontal: px(8) })}>The last alert could not be scheduled.</Text>}
+    {!!message && <Label accessibilityLiveRegion="polite" style={typeStyle(px, 12, regular, mute, { marginTop: px(12), marginHorizontal: px(8) })}>{message}</Label>}
+    {data.notificationFailed && <Label style={typeStyle(px, 12, regular, mute, { marginTop: px(12), marginHorizontal: px(8) })}>The last alert could not be scheduled.</Label>}
     <Note px={px}>Alerts are local. They are checked when Nostos updates while open, only for a verified last drive on a fresh report, once per drive and threshold. Tapping an alert opens the Range Rover (garage-monitor://vehicle/range-rover).</Note>
   </SubScreen>;
 }
 
 function ToggleRow({ px, title, caption, value, disabled, onChange }: { px: Px; title: string; caption: string; value: boolean; disabled?: boolean; onChange: (next: boolean) => void }) {
-  return <View style={{ paddingHorizontal: px(14), height: px(68), flexDirection: 'row', alignItems: 'center' }}>
+  return <View style={{ paddingHorizontal: px(14), minHeight: px(68), paddingVertical: px(4), flexDirection: 'row', alignItems: 'center' }}>
     <View style={{ flex: 1, opacity: disabled ? 0.55 : 1 }}>
-      <Text style={typeStyle(px, 15, medium, ink)}>{title}</Text>
-      <Text style={typeStyle(px, 12, regular, mute, { marginTop: px(3) })}>{caption}</Text>
+      <Label style={typeStyle(px, 15, medium, ink)}>{title}</Label>
+      <Label style={typeStyle(px, 12, regular, mute, { marginTop: px(3) })}>{caption}</Label>
     </View>
     <Toggle px={px} label={title} value={value} disabled={disabled} onChange={onChange} />
   </View>;
@@ -209,24 +209,25 @@ const adapters = [
 export function AddVehicleSheet({ onClose }: { onClose: () => void }) {
   const px = usePx();
   const insets = useSafeAreaInsets();
-  return <View style={{ backgroundColor: page, borderTopLeftRadius: px(19), borderTopRightRadius: px(19), paddingHorizontal: px(16), paddingBottom: Math.max(insets.bottom, px(16)) + px(8) }}>
+  // Canvas, corner radius and max height come from the Sheet panel; the last row stays clear of the home indicator.
+  return <View style={{ paddingHorizontal: px(16), paddingBottom: Math.max(insets.bottom, px(16)) + px(8) }}>
     <View style={{ alignSelf: 'center', width: px(36), height: px(5), borderRadius: px(3), backgroundColor: rule, marginTop: px(8) }} />
     <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: px(18) }}>
-      <Text accessibilityRole="header" style={typeStyle(px, 28, semibold, ink, { flex: 1, marginLeft: px(6) })}>Add vehicle</Text>
+      <Label accessibilityRole="header" style={typeStyle(px, 28, semibold, ink, { flex: 1, marginLeft: px(6) })}>Add vehicle</Label>
       <PressScale accessibilityRole="button" accessibilityLabel="Done" hitSlop={10} onPress={onClose} style={{ paddingHorizontal: px(8), paddingVertical: px(6) }}>
-        <Text style={typeStyle(px, 15, medium, ink)}>Done</Text>
+        <Label style={typeStyle(px, 15, medium, ink)}>Done</Label>
       </PressScale>
     </View>
-    <Text style={typeStyle(px, 12, regular, mute, { marginTop: px(6), marginLeft: px(7) })}>Adding vehicles is unavailable in this build.</Text>
+    <Label style={typeStyle(px, 12, regular, mute, { marginTop: px(6), marginLeft: px(7) })}>Adding vehicles is unavailable in this build.</Label>
     <Card px={px} style={{ marginTop: px(18) }}>
       {adapters.map((adapter, i) => <View key={adapter.title}>
         {i > 0 && <Rule px={px} />}
         <View accessible style={{ paddingHorizontal: px(14), paddingVertical: px(14), flexDirection: 'row', alignItems: 'center', backgroundColor: white }}>
           <View style={{ flex: 1 }}>
-            <Text style={typeStyle(px, 15, medium, ink)}>{adapter.title}</Text>
-            <Text style={typeStyle(px, 12, regular, mute, { marginTop: px(3) })}>{adapter.note}</Text>
+            <Label style={typeStyle(px, 15, medium, ink)}>{adapter.title}</Label>
+            <Label style={typeStyle(px, 12, regular, mute, { marginTop: px(3) })}>{adapter.note}</Label>
           </View>
-          <Text style={typeStyle(px, 10, medium, mute)}>{adapter.state.toUpperCase()}</Text>
+          <Label style={typeStyle(px, 10, medium, mute)}>{adapter.state.toUpperCase()}</Label>
         </View>
       </View>)}
     </Card>
@@ -237,9 +238,9 @@ export function AddVehicleSheet({ onClose }: { onClose: () => void }) {
         <PressScale accessibilityRole="link" accessibilityLabel={credit.vehicle + ' photo by ' + credit.author + ', ' + credit.license}
           accessibilityHint="Opens the source page" onPress={() => void Linking.openURL(credit.source)}
           style={{ paddingHorizontal: px(14), paddingVertical: px(11), backgroundColor: white }}>
-          <Text style={typeStyle(px, 12, medium, ink)}>{credit.vehicle}</Text>
-          <Text style={typeStyle(px, 11, regular, mute, { marginTop: px(2) })}>{'Photo: ' + credit.author + ' · ' + credit.license + ' · Wikimedia Commons'}</Text>
-          <Text style={typeStyle(px, 11, regular, mute, { marginTop: px(1) })}>{credit.changes}</Text>
+          <Label style={typeStyle(px, 12, medium, ink)}>{credit.vehicle}</Label>
+          <Label style={typeStyle(px, 11, regular, mute, { marginTop: px(2) })}>{'Photo: ' + credit.author + ' · ' + credit.license + ' · Wikimedia Commons'}</Label>
+          <Label style={typeStyle(px, 11, regular, mute, { marginTop: px(1) })}>{credit.changes}</Label>
         </PressScale>
       </View>)}
     </Card>
