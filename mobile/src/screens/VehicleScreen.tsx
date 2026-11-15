@@ -1,18 +1,23 @@
 import { Pressable, StyleSheet, View } from 'react-native';
+import { GestureDetector } from 'react-native-gesture-handler';
 import Animated, { useAnimatedScrollHandler } from 'react-native-reanimated';
 import { VEHICLES, connectionState, healthView, lastUpdateLine, metrics, offersUpdateNow } from '../garageModel.ts';
 import { CountUp, PressScale, Skeleton, useProgressReveal } from '../ui/motion';
-import { ActionRow, BackButton, useFeed, usePullToRefresh } from '../ui/parts';
+import { ActionRow, NavBar, useFeed } from '../ui/parts';
 import { useSafeFrame } from '../ui/safe';
 import { canvases } from '../ui/safeArea';
-import { useNav, type Entry } from '../ui/stack';
+import { useNav, useSwipeDismiss, type Entry } from '../ui/stack';
 import { LiveStatusLine, UpdateNowButton, UpdatingPulse } from '../ui/live';
 import { HeroStage } from '../ui/stage';
 import { At, Label, ink, medium, mute, place, regular, rule, semibold, typeStyle, useNow, usePx, white, type Px } from '../ui/theme';
 
 /**
  * 26–28 · vehicle detail. The car, floor, and contact shadow arrive on the hero layer; every other block
- * fades up in sequence from the same progress value, so the back swipe scrubs the whole transition.
+ * fades up in sequence from the same progress value, so the back button, the edge swipe and the swipe down all play
+ * (or scrub) the same transition in reverse. Back and "Update now" sit in the fixed NavBar slots above the scroll view.
+ *
+ * No pull-to-refresh here: at the top of the list a downward pull closes the screen (stack.useSwipeDismiss), so the
+ * scroll view does not bounce at the top. The same live read stays on the "Update now" button and the Garage's pull.
  */
 export function VehicleScreen({ entry, vehicle }: { entry: Entry; vehicle: number }) {
   const px = usePx();
@@ -29,7 +34,6 @@ export function VehicleScreen({ entry, vehicle }: { entry: Entry; vehicle: numbe
   // "Update now" only where a live read makes sense: a signed-in feed that is not waiting for its first data.
   const updatable = connection ? offersUpdateNow(connection) : false;
   const footer = feed ? (feed.demo ? 'Demo data · ' : '') + lastUpdateLine(feed.snapshot, now) : 'Live vehicle data unavailable';
-  const refresh = usePullToRefresh();
   const onScroll = useAnimatedScrollHandler(event => { entry.scroll.value = event.contentOffset.y; });
   const p = entry.progress;
   const header = useProgressReveal(p, 0.34);
@@ -41,14 +45,13 @@ export function VehicleScreen({ entry, vehicle }: { entry: Entry; vehicle: numbe
   const metric = typeStyle(px, 25, semibold, ink);
   const safe = useSafeFrame();
   const frame = canvases.vehicle;
+  const dismiss = useSwipeDismiss(entry);
 
-  return <Animated.ScrollView testID="vehicle-scroll" style={{ flex: 1 }} {...safe.scroll} onScroll={onScroll} scrollEventThrottle={16}
-    contentContainerStyle={{ height: safe.canvasHeight(frame.height, frame.contentBottom) }} refreshControl={feed && !feed.demo ? refresh : undefined}>
+  return <View style={{ flex: 1 }}><GestureDetector gesture={dismiss.gesture}><Animated.ScrollView ref={dismiss.ref} testID="vehicle-scroll" style={{ flex: 1 }}
+    {...safe.scroll} onScroll={onScroll} scrollEventThrottle={16} bounces={false}
+    contentContainerStyle={{ height: safe.canvasHeight(frame.height, frame.contentBottom) }}>
     {/* The Figma canvas, shifted below the status bar / Dynamic Island by the same amount as the Garage canvas. */}
     <View testID="vehicle-canvas" style={{ position: 'absolute', left: 0, right: 0, top: safe.top, height: px(frame.height) }} pointerEvents="box-none">
-      <Animated.View style={[place(px, 0, 0, 390, 100), back]}>
-        <BackButton px={px} label="Back to Garage" />
-      </Animated.View>
       <Animated.View style={[place(px, 0, 0, 390, 200), header]} pointerEvents="box-none">
         <Label accessibilityRole="header" style={typeStyle(px, 31, semibold, ink, place(px, 22, 105))}>{info.name}</Label>
         <At px={px} value={info.model} x={23} y={145} size={12} color={mute} />
@@ -56,12 +59,8 @@ export function VehicleScreen({ entry, vehicle }: { entry: Entry; vehicle: numbe
           hitSlop={10} onPress={() => nav.push({ name: 'connection', vehicle })} style={place(px, 23, 170)}>
           <Label style={typeStyle(px, 10, medium, mute)}>{status.toUpperCase()}</Label>
         </Pressable>
-        {updatable && <View style={[place(px, 214, 156, 160, 32), { alignItems: 'flex-end' }]} pointerEvents="box-none">
-          <UpdateNowButton px={px} vehicle={vehicle} />
-        </View>}
       </Animated.View>
 
-      <HeroStage px={px} index={vehicle} origin={entry.origin} progress={p} scrollOffset={entry.scroll} onReady={entry.begin} top={safe.top} />
 
       <Animated.View style={[place(px, 16, 421, 358, 167, 18), { backgroundColor: white }, info1]}>
         <View style={[place(px, 174, 21, 1, 125), { backgroundColor: rule }]} />
@@ -105,8 +104,14 @@ export function VehicleScreen({ entry, vehicle }: { entry: Entry; vehicle: numbe
           </View>
         </Pressable>
       </Animated.View>
+
+      {/* Last in the canvas: the flying car passes over the fading blocks, never under them. At rest the stage
+          (y 208–412) overlaps no block, so the resting frame is unchanged. */}
+      <HeroStage px={px} index={vehicle} origin={entry.origin} progress={p} scrollOffset={entry.scroll} onReady={entry.begin} top={safe.top} travel={entry.travel} />
     </View>
-  </Animated.ScrollView>;
+  </Animated.ScrollView></GestureDetector>
+  <NavBar back="Back to Garage" leadingStyle={back} trailing={updatable ? <UpdateNowButton px={px} vehicle={vehicle} /> : undefined} trailingStyle={header} />
+  </View>;
 }
 
 function Metric({ px, x, y, loading, value, suffix, empty, style }: {

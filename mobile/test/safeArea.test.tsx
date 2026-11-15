@@ -98,7 +98,8 @@ describe('iPhone 16 Pro insets (62 / 34)', () => {
     const shift = topShift(px, 62);
     for (const route of [{ name: 'drives', vehicle: 0 }, { name: 'status', vehicle: 0 }, { name: 'connection', vehicle: 0 }, { name: 'notifications' }] as Route[]) {
       const view = mount([route]);
-      close(flat(screen.getByTestId('subscreen-back')).top, shift);
+      // Back sits in the fixed NavBar slot, shifted by the same amount as the canvas.
+      close(flat(screen.getByTestId('nav-leading')).top, shift + px(45));
       const scroll = screen.getByTestId('subscreen-scroll');
       const container = flat({ props: { style: scroll.props.contentContainerStyle } });
       expect(container.paddingBottom).toBeGreaterThanOrEqual(34 + px(16));

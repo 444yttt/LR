@@ -1,14 +1,14 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
-import { RefreshControl, View, type StyleProp, type ViewStyle } from 'react-native';
-import Animated, { useAnimatedScrollHandler } from 'react-native-reanimated';
+import { RefreshControl, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+import Animated, { interpolate, useAnimatedScrollHandler, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import type { GarageData } from '../useGarage';
 import { vehicleFeeds, type Feed, type GarageInput } from '../garageModel.ts';
 import { liveRefreshView } from '../liveRefresh.ts';
 import { PressScale, Reveal, haptics } from './motion';
 import { useEntry, useNav } from './stack';
 import { useSafeFrame } from './safe';
-import { canvases, fontScaleCap } from './safeArea';
-import { At, FontCapProvider, Label, ink, medium, mute, place, regular, rule, semibold, typeStyle, usePx, white, type Px } from './theme';
+import { canvases, fontScaleCap, navSlots } from './safeArea';
+import { At, FontCapProvider, Label, ink, medium, mute, page, place, regular, rule, semibold, typeStyle, usePx, white, type Px } from './theme';
 
 export type Data = Pick<GarageData, 'snapshot' | 'phase' | 'refresh' | 'refreshNow' | 'liveRefresh' | 'signIn' | 'signOut' | 'notificationFailed' | 'discoveryFailed'
   | 'lastSyncedAt' | 'retryDiscovery' | 'hasSession' | 'canSignIn'> & {
@@ -114,18 +114,55 @@ export function SectionLabel({ px, value }: { px: Px; value: string }) {
   return <Label style={typeStyle(px, 11, medium, mute, { marginTop: px(26), marginLeft: px(8) })}>{value.toUpperCase()}</Label>;
 }
 
-export function BackButton({ px, label = 'Back' }: { px: Px; label?: string }) {
+/** Back chevron filling the NavBar's leading slot. Render it only through NavBar, so it is on the same spot everywhere. */
+function BackButton({ px, label }: { px: Px; label: string }) {
   const nav = useNav();
-  return <PressScale accessibilityRole="button" accessibilityLabel={label} scale={0.9} onPress={nav.pop} style={place(px, 14, 45, 50, 50)}>
+  return <PressScale accessibilityRole="button" accessibilityLabel={label} scale={0.9} onPress={nav.pop} style={{ width: px(navSlots.leading.w), height: px(navSlots.leading.h) }}>
     <Label style={typeStyle(px, 28, medium, ink, place(px, 9, 7))}>‹</Label>
   </PressScale>;
+}
+
+/**
+ * The one header for pushed screens: back in the fixed leading slot, an optional recurring action (e.g. "Update now")
+ * in the fixed trailing slot (safeArea.navSlots), both shifted below the status bar / Dynamic Island by the same
+ * safe-area shift as every canvas. Rendered above the screen's scroll view, so neither button scrolls or fades with
+ * the content; a canvas-coloured backdrop fades in behind them once content scrolls underneath (invisible at rest,
+ * so the Figma frames are unchanged). `leadingStyle` / `trailingStyle` only carry the screen's enter/exit transition.
+ */
+export function NavBar({ back = 'Back', trailing, leadingStyle, trailingStyle }: {
+  back?: string; trailing?: ReactNode; leadingStyle?: StyleProp<ViewStyle>; trailingStyle?: StyleProp<ViewStyle>;
+}) {
+  const px = usePx();
+  const safe = useSafeFrame();
+  const entry = useEntry();
+  const idle = useSharedValue(0);
+  const scroll = entry?.scroll ?? idle;
+  const progress = entry?.progress ?? idle;
+  const hero = entry?.hero ?? false;
+  const fade = px(12);
+  const backdrop = useAnimatedStyle(() => {
+    const scrolled = Math.min(1, Math.max(0, scroll.value / fade));
+    return { opacity: scrolled * (hero ? interpolate(progress.value, [0, 0.55], [0, 1], 'clamp') : 1) };
+  });
+  const { leading, trailing: right } = navSlots;
+  const rowTop = safe.top + px(leading.y);
+  return <View testID="nav-bar" pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, top: 0, height: rowTop + px(leading.h) }}>
+    <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: page }, backdrop]} />
+    <Animated.View testID="nav-leading" style={[{ position: 'absolute', left: px(leading.x), top: rowTop, width: px(leading.w), height: px(leading.h) }, leadingStyle]}>
+      <BackButton px={px} label={back} />
+    </Animated.View>
+    {trailing != null && <Animated.View testID="nav-trailing" pointerEvents="box-none"
+      style={[{ position: 'absolute', right: px(right.right), top: safe.top + px(right.y), height: px(right.h), justifyContent: 'center', alignItems: 'flex-end' }, trailingStyle]}>
+      {trailing}
+    </Animated.View>}
+  </View>;
 }
 
 /**
  * Pushed-screen scaffold: back chevron at (14, 45), 31pt title at y 105, 12pt caption, then flowing content
  * at the 16pt page inset. Content reveals in a short stagger after the push.
  */
-export function SubScreen({ title, caption, children, back }: { title: string; caption?: string; children: ReactNode; back?: string }) {
+export function SubScreen({ title, caption, children, back, trailing }: { title: string; caption?: string; children: ReactNode; back?: string; trailing?: ReactNode }) {
   const px = usePx();
   const entry = useEntry();
   const refresh = usePullToRefresh();
@@ -133,11 +170,8 @@ export function SubScreen({ title, caption, children, back }: { title: string; c
   const onScroll = useAnimatedScrollHandler(event => { if (entry) entry.scroll.value = event.contentOffset.y; });
   const frame = canvases.subScreen;
   // Back button and title move down by the safe-area shift; the last block clears the home indicator.
-  return <FontCapProvider value={fontScaleCap.flow}><Animated.ScrollView testID="subscreen-scroll" style={{ flex: 1 }} {...safe.scroll} onScroll={onScroll} scrollEventThrottle={16}
+  return <FontCapProvider value={fontScaleCap.flow}><View style={{ flex: 1 }}><Animated.ScrollView testID="subscreen-scroll" style={{ flex: 1 }} {...safe.scroll} onScroll={onScroll} scrollEventThrottle={16}
     contentContainerStyle={{ paddingBottom: safe.bottomPadding(frame.paddingBottom), minHeight: px(frame.minHeight) + safe.top }} refreshControl={refresh}>
-    <View testID="subscreen-back" style={{ position: 'absolute', left: 0, right: 0, top: safe.top, height: px(100) }} pointerEvents="box-none">
-      <BackButton px={px} label={back ?? 'Back'} />
-    </View>
     <View style={{ paddingTop: px(frame.titleTop) + safe.top, paddingHorizontal: px(16) }}>
       <Reveal delay={120}>
         <Label accessibilityRole="header" style={typeStyle(px, 31, semibold, ink, { marginLeft: px(6) })}>{title}</Label>
@@ -145,7 +179,9 @@ export function SubScreen({ title, caption, children, back }: { title: string; c
       </Reveal>
       <Reveal delay={190}>{children}</Reveal>
     </View>
-  </Animated.ScrollView></FontCapProvider>;
+  </Animated.ScrollView>
+  <NavBar back={back} trailing={trailing} />
+  </View></FontCapProvider>;
 }
 
 export { At };

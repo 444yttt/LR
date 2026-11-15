@@ -1,10 +1,13 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, { interpolate, makeMutable, useAnimatedStyle, useSharedValue, withSpring, withTiming, type SharedValue } from 'react-native-reanimated';
+import Animated, {
+  interpolate, makeMutable, scrollTo, useAnimatedRef, useAnimatedStyle, useSharedValue, withSpring, withTiming, type SharedValue,
+} from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { scheduleOnRN } from 'react-native-worklets';
 import type { Route } from '../garageModel.ts';
+import { dismissMetrics, dragProgress, followPoints, followShape, releaseDuration, rubberBand, shouldDismiss, swipeDown } from './dismiss.ts';
 import { ease, haptics, springs, useMotion } from './motion';
 import type { Origin } from './stage';
 import { FontCapProvider, page, usePx } from './theme';
@@ -19,6 +22,13 @@ export type Entry = {
   scroll: SharedValue<number>;
   origin: Origin | null;
   hero: boolean;
+  /**
+   * Swipe-down follow: points the detail layer moves down per unit of (1 − progress) (see dismiss.followShape).
+   * 0 except while a swipe-down owns the screen, so the back button and edge swipe fly the hero alone.
+   */
+  follow: SharedValue<number>;
+  /** Vertical distance (pt, unscrolled) the hero car travels from its resting stage down to its card. Set by HeroStage. */
+  travel: SharedValue<number>;
   /** Starts the push animation. Hero pushes wait for the hero image to load so the first moving frame is drawn. */
   begin: () => void;
 };
@@ -76,7 +86,7 @@ export function Stack({ base, render, children }: { base: ReactNode; render: (en
     const hero = route.name === 'vehicle';
     let started = presented;
     return {
-      key, route, origin, hero, progress, scroll: makeMutable(0),
+      key, route, origin, hero, progress, scroll: makeMutable(0), follow: makeMutable(0), travel: makeMutable(0),
       begin: () => {
         if (started) return;
         started = true;
@@ -133,6 +143,10 @@ export function Stack({ base, render, children }: { base: ReactNode; render: (en
   </NavContext.Provider>;
 }
 
+/** Navigation controls of the layer a screen renders in; the swipe-down dismiss uses the same ones as the edge swipe. */
+type LayerControls = { top: boolean; onBackStart?: () => void; onCancelBack?: () => void; remove?: (key: string) => void };
+const LayerContext = createContext<LayerControls>({ top: false });
+
 function Layer({ entry, next, top, width, children, onBackStart, onCancelBack, remove }: {
   entry?: Entry; next?: Entry; top: boolean; width: number; children: ReactNode;
   onBackStart?: () => void; onCancelBack?: () => void; remove?: (key: string) => void;
@@ -145,13 +159,16 @@ function Layer({ entry, next, top, width, children, onBackStart, onCancelBack, r
   const hero = entry?.hero ?? false;
   const fallback = useSharedValue(0);
   const ownValue = own ?? fallback;
+  const followValue = entry?.follow ?? fallback;
   const aboveValue = above ?? fallback;
   const parallax = -width * 0.28;
 
   const style = useAnimatedStyle(() => {
-    const transforms: ({ translateX: number } | { scale: number })[] = [];
+    const transforms: ({ translateX: number } | { translateY: number } | { scale: number })[] = [];
     let opacity = 1;
     if (entry && !hero) transforms.push({ translateX: (1 - ownValue.value) * width });
+    // Swipe-down: the detail follows the finger; derived from progress, so it is at rest before the card handoff.
+    if (entry && hero) transforms.push({ translateY: followValue.value * followShape(ownValue.value) });
     if (above) {
       if (heroAbove) {
         // Clear the Garage before the detail header arrives so the two titles never overlap.
@@ -205,7 +222,92 @@ function Layer({ entry, next, top, width, children, onBackStart, onCancelBack, r
     <Animated.View testID="status-backdrop" pointerEvents="none" style={[{ position: 'absolute', left: 0, right: 0, top: 0, height: insets.top, backgroundColor: page }, canvas]} />
     <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: '#000' }, scrim]} />
   </Animated.View>;
-  return backGesture ? <GestureDetector gesture={backGesture}>{body}</GestureDetector> : body;
+  const controls = useMemo<LayerControls>(() => ({ top, onBackStart, onCancelBack, remove }), [top, onBackStart, onCancelBack, remove]);
+  return <LayerContext.Provider value={controls}>
+    {backGesture ? <GestureDetector gesture={backGesture}>{body}</GestureDetector> : body}
+  </LayerContext.Provider>;
+}
+
+/**
+ * Swipe down to close a hero screen. Wrap the screen's vertical scroll view in a GestureDetector with `gesture` and
+ * give it `ref`. The pan runs simultaneously with the scroll view's native gesture: while the list is scrolled it only
+ * re-anchors, so the list scrolls; once the list is at the top and the finger keeps pulling down, the pan owns the
+ * screen, pins the list at 0 and scrubs the same hero `progress` the back button reverses (plus a follow translation,
+ * see dismiss.ts). Release past `swipeDown.commit` of the travel or a downward fling flies the car back to its card;
+ * otherwise a critically damped spring (clamped, never past 1) settles it back. Reduce Motion: nothing moves under
+ * the finger; a qualifying release still closes, with a jump.
+ */
+export function useSwipeDismiss(entry: Entry) {
+  const { top, onBackStart, onCancelBack, remove } = useContext(LayerContext);
+  const { reduced } = useMotion();
+  const { height } = useWindowDimensions();
+  const ref = useAnimatedRef<Animated.ScrollView>();
+  // Gesture state, UI thread only: 0 idle · 1 armed (began presented) · 2 dragging (owns the screen).
+  const phase = useSharedValue(0);
+  const anchor = useSharedValue(0);
+  const band = useSharedValue(0);
+  const gesture = useMemo(() => {
+    const native = Gesture.Native();
+    if (!entry.hero || !remove) return native;
+    const { progress, scroll, follow, travel, key } = entry;
+    const garageScroll = entry.origin?.scroll;
+    const m = dismissMetrics(height);
+    const soft = haptics.soft;
+    const pan = Gesture.Pan()
+      .withTestId('swipe-dismiss')
+      .enabled(top)
+      .activeOffsetY(swipeDown.activateY)
+      .failOffsetX([-swipeDown.failX, swipeDown.failX])
+      .onStart(event => {
+        // Not during the flight in (a back tap reverses that); only from the presented screen.
+        phase.value = progress.value >= 0.999 ? 1 : 0;
+        anchor.value = event.translationY;
+        band.value = 0;
+      })
+      .onUpdate(event => {
+        if (phase.value === 0) return;
+        // Still scrolling the list back to the top: the pull starts from wherever the list reaches 0.
+        if (phase.value === 1 && scroll.value > 0.5) { anchor.value = event.translationY; return; }
+        const drag = event.translationY - anchor.value;
+        if (phase.value === 1) {
+          if (drag <= 0) return;
+          phase.value = 2;
+          if (onBackStart) scheduleOnRN(onBackStart);
+          const shift = (garageScroll ? -garageScroll.value : 0) + scroll.value;
+          follow.value = reduced ? 0 : followPoints(travel.value + shift, m.distance);
+        }
+        band.value = rubberBand(drag, m.natural, m.limit);
+        // The list stays at the top while the screen is pulled (bounces are off at the top, this catches up-strokes).
+        scrollTo(ref, 0, 0, false);
+        if (!reduced) progress.value = dragProgress(band.value, m.distance);
+      })
+      // onFinalize, not onEnd: it runs for every way a touch can stop (lift, system cancel, another gesture taking
+      // over), so a pulled screen always settles. Only a completed lift may close it.
+      .onFinalize((event, success) => {
+        const dragging = phase.value === 2;
+        phase.value = 0;
+        if (!dragging) return;
+        if (success && shouldDismiss(band.value, event.velocityY, m.distance)) {
+          progress.value = withTiming(0, { duration: reduced ? 0 : releaseDuration(progress.value, event.velocityY), easing: ease.out }, finished => {
+            if (finished) scheduleOnRN(remove, key);
+          });
+          scheduleOnRN(soft);
+          return;
+        }
+        // An interrupted settle (a new pull grabbed the screen) leaves the follow to that pull.
+        const settled = (finished?: boolean) => {
+          'worklet';
+          if (finished === false) return;
+          follow.value = 0;
+          if (onCancelBack) scheduleOnRN(onCancelBack);
+        };
+        if (reduced) { progress.value = 1; settled(); return; }
+        // Hand the finger's speed to the spring; clamped so the hero never overshoots its resting place.
+        progress.value = withSpring(1, { ...springs.sheet, overshootClamping: true, velocity: success ? -event.velocityY / m.distance : 0 }, settled);
+      });
+    return Gesture.Simultaneous(pan, native);
+  }, [entry.key, top, height, reduced, !!remove]);
+  return { gesture, ref };
 }
 
 /**

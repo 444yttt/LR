@@ -49,3 +49,15 @@ export const canvases = {
   vehicle: { height: 920, contentBottom: 866 },
   subScreen: { minHeight: 920, titleTop: 105, back: 45, paddingBottom: 56 },
 } as const;
+
+/**
+ * Fixed navigation slots (design pt, before the safe-area top shift). Every pushed screen renders its back button in
+ * `leading` and its recurring trailing action (e.g. "Update now") in `trailing`, through parts.NavBar, outside the
+ * scroll view: the same action sits on the same spot on every screen and never scrolls away.
+ * `leading` is the Figma back-button hit frame; `trailing` is right-aligned to the 16pt page inset, centred on the
+ * same row.
+ */
+export const navSlots = {
+  leading: { x: 14, y: 45, w: 50, h: 50 },
+  trailing: { right: 16, y: 45, h: 50 },
+} as const;
