@@ -56,7 +56,7 @@ export function useGarage() {
   const [request, , promptAsync] = Auth.useAuthRequest({
     clientId: clientId || 'unconfigured',
     redirectUri,
-    scopes: ['openid'],
+    scopes: ['openid', 'email'],
     usePKCE: true,
     extraParams: resource ? { resource } : undefined,
   }, discovery);

@@ -30,15 +30,16 @@ test('rejects unauthorized, expired and other-owner access before querying D1', 
       all: async () => ({ results: [] }),
     };
   } };
-  const env = { DB, GARAGE_ISSUER: issuer, GARAGE_JWKS_URL: issuer + '/keys', GARAGE_AUDIENCE: 'garage-test-api', GARAGE_OWNER_SUB: 'owner' };
-  const sign = (sub, expiry, audience = env.GARAGE_AUDIENCE) => new SignJWT({})
+  const env = { DB, GARAGE_ISSUER: issuer, GARAGE_JWKS_URL: issuer + '/keys', GARAGE_AUDIENCE: 'garage-test-api', GARAGE_OWNER_SUB: 'owner', GARAGE_OWNER_EMAIL: 'Owner@Example.com' };
+  const sign = (sub, expiry, audience = env.GARAGE_AUDIENCE, email = 'owner@example.com') => new SignJWT(email ? { email } : {})
     .setProtectedHeader({ alg: 'ES256', kid: key.kid }).setIssuer(issuer).setSubject(sub)
     .setAudience(audience).setExpirationTime(expiry).sign(privateKey);
   const send = token => worker.fetch(new Request('https://garage.example/v1/range-rover', {
     headers: token ? { Authorization: 'Bearer ' + token } : {},
   }), env);
   const epoch = Math.floor(Date.now() / 1000);
-  for (const token of [null, await sign('someone-else', epoch + 60), await sign('owner', epoch - 60), await sign('owner', epoch + 60, 'wrong-api')]) {
+  for (const token of [null, await sign('someone-else', epoch + 60), await sign('owner', epoch - 60), await sign('owner', epoch + 60, 'wrong-api'),
+    await sign('owner', epoch + 60, undefined, 'someone@example.com'), await sign('owner', epoch + 60, undefined, null)]) {
     assert.equal((await send(token)).status, 401);
   }
   assert.equal(reads, 0);
@@ -49,4 +50,10 @@ test('rejects unauthorized, expired and other-owner access before querying D1', 
     status: 'pending', fetchedAt: null, lastDriveAt: null, lastDriveVerified: false,
     rangeKm: null, fuelPercent: null, health: null, trips: null,
   });
+  // Without a pinned sub, the email claim alone still restricts access to the owner.
+  delete env.GARAGE_OWNER_SUB;
+  assert.equal((await send(await sign('first-login-sub', epoch + 60))).status, 200);
+  assert.equal((await send(await sign('first-login-sub', epoch + 60, undefined, 'someone@example.com'))).status, 401);
+  delete env.GARAGE_OWNER_EMAIL;
+  assert.equal((await send(await sign('first-login-sub', epoch + 60))).status, 503);
 });
