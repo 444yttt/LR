@@ -30,7 +30,7 @@ const ago = (minutes: number) => new Date(now - minutes * 60_000).toISOString();
 const data: Data = {
   phase: 'ready', hasSession: true, discoveryFailed: false, lastSyncedAt: now - 60_000, notificationFailed: false, canSignIn: true,
   snapshot: parseSnapshot({ status: 'fresh', fetchedAt: ago(4), lastDriveVerified: true, lastDriveAt: ago(120), rangeKm: 500, fuelPercent: 60, health: 'good', trips: [ago(120), ago(600)] }),
-  refresh: async () => {}, signIn: async () => {}, signOut: async () => {}, retryDiscovery: () => {},
+  refresh: async () => {}, refreshNow: async () => {}, liveRefresh: { state: 'idle', retryAt: null, at: null }, signIn: async () => {}, signOut: async () => {}, retryDiscovery: () => {},
 };
 
 function Jump({ routes }: { routes: Route[] }) {

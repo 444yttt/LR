@@ -2,13 +2,14 @@ import { useCallback, useEffect, useState } from 'react';
 import { Alert, AppState, Linking, Platform, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
-  VEHICLES, connectionState, displayDate, healthView, permissionCopy, relativeTime,
+  VEHICLES, connectionState, displayDate, healthView, offersUpdateNow, permissionCopy, relativeTime,
   type AlertPrefs, type PermissionState,
 } from '../garageModel.ts';
 import { vehicleCredits } from '../credits';
 import { loadAlertPrefs, notifyIfDue, permissionState, saveAlertPrefs } from '../notifications';
 import { PressScale, Skeleton, Toggle, haptics } from '../ui/motion';
 import { ActionRow, Card, Field, Headline, Note, Rule, SectionLabel, SubScreen, useData, useFeed } from '../ui/parts';
+import { LiveStatusLine, UpdateNowButton } from '../ui/live';
 import { useNav } from '../ui/stack';
 import { Label, ink, medium, mute, regular, rule, semibold, typeStyle, useNow, usePx, white, type Px } from '../ui/theme';
 
@@ -91,8 +92,9 @@ export function ConnectionScreen({ vehicle }: { vehicle: number }) {
   const busy = feed.phase === 'loading' || feed.phase === 'signingIn';
   const primary = connection.action === 'signIn' ? { title: 'Sign in', run: () => void data.signIn(), disabled: !data.canSignIn || busy }
     : connection.action === 'retrySetup' ? { title: 'Retry sign-in setup', run: data.retryDiscovery, disabled: false }
-    : connection.action === 'refresh' ? { title: connection.kind === 'updateFailed' ? 'Retry update' : 'Refresh now', run: () => void data.refresh(), disabled: busy }
     : null;
+  // Signed in and past the first load: the live vehicle read ("Update now") replaces the old GET-only "Refresh now".
+  const updatable = offersUpdateNow(connection);
   const signOut = () => {
     const run = () => { haptics.warning(); void data.signOut(); };
     if (Platform.OS === 'web') { run(); return; }
@@ -108,6 +110,16 @@ export function ConnectionScreen({ vehicle }: { vehicle: number }) {
     </Card>
     {primary && <ActionRow px={px} title={primary.title} onPress={primary.run} disabled={primary.disabled} chevron={false}
       detail={busy && connection.action !== 'signIn' ? 'Updating…' : undefined} />}
+    {updatable && <View style={{ width: px(358), minHeight: px(65), marginTop: px(12), borderRadius: px(16), backgroundColor: white,
+      paddingHorizontal: px(16), paddingVertical: px(12), flexDirection: 'row', alignItems: 'center' }}>
+      <View style={{ flex: 1, marginRight: px(12) }}>
+        <Label style={typeStyle(px, 15, medium, ink)}>{connection.kind === 'updateFailed' ? 'Retry update' : 'Vehicle report'}</Label>
+        <View style={{ marginTop: px(3) }}>
+          <LiveStatusLine vehicle={vehicle} idle="Read the latest values from the vehicle" style={typeStyle(px, 12, regular, mute)} />
+        </View>
+      </View>
+      <UpdateNowButton px={px} vehicle={vehicle} style={{ borderWidth: 1, borderColor: rule }} />
+    </View>}
     <Card px={px}>
       <Field px={px} label="Last successful update" value={snapshot?.fetchedAt ? displayDate(snapshot.fetchedAt) + ' JST' : null}
         caption={snapshot?.fetchedAt ? 'Vehicle report collected ' + (relativeTime(snapshot.fetchedAt, now) ?? '') : 'No verified vehicle update available'} />

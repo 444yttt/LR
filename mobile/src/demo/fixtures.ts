@@ -3,15 +3,18 @@
 // builds never import the demo entry point, so Ferrari 296 and BMW X7 stay "not connected" with no values there.
 import { parseSnapshot, type Snapshot } from '../telemetry.ts';
 import { VEHICLES, type Feed } from '../garageModel.ts';
+import { DEFAULT_RETRY_AFTER_SECONDS } from '../liveRefresh.ts';
 
 export const DEMO_MARKER = 'nostos-demo-fixture';
 
 /** Every state a vehicle screen can be in, so all three cars can be checked screen by screen. */
-export const DEMO_SCENARIOS = ['live', 'loading', 'notFetched', 'updateFailed', 'authExpired', 'empty'] as const;
+export const DEMO_SCENARIOS = [
+  'live', 'requesting', 'rateLimited', 'refreshFailed', 'loading', 'notFetched', 'updateFailed', 'authExpired', 'empty',
+] as const;
 export type DemoScenario = typeof DEMO_SCENARIOS[number];
 
 export const demoScenarioLabel: Record<DemoScenario, string> = {
-  live: 'Live', loading: 'Loading', notFetched: 'Not fetched', updateFailed: 'Update failed', authExpired: 'Auth expired', empty: 'Empty',
+  live: 'Live', requesting: 'Updating now', rateLimited: 'Rate limited', refreshFailed: 'Vehicle unreachable', loading: 'Loading', notFetched: 'Not fetched', updateFailed: 'Update failed', authExpired: 'Auth expired', empty: 'Empty',
 };
 
 type Profile = { rangeKm: number; fuelPercent: number; health: Snapshot['health']; drives: { hoursAgo: number; minutes: number; km: number; lPer100: number }[] };
@@ -56,6 +59,13 @@ export function demoFeed(vehicle: number, scenario: DemoScenario, now: number): 
   const base = { demo: true, discoveryFailed: false };
   switch (scenario) {
     case 'live': return { ...base, phase: 'ready', snapshot: snapshotFor(vehicle, now, 'fresh'), hasSession: true, lastSyncedAt: now - 60_000 };
+    // "Update now" states: the previous report stays on screen while the vehicle is read, after a rate limit, and after a failure.
+    case 'requesting': return { ...base, phase: 'ready', snapshot: snapshotFor(vehicle, now, 'fresh'), hasSession: true, lastSyncedAt: now - 60_000,
+      liveRefresh: { state: 'requesting', retryAt: null, at: now } };
+    case 'rateLimited': return { ...base, phase: 'ready', snapshot: snapshotFor(vehicle, now, 'fresh'), hasSession: true, lastSyncedAt: now,
+      liveRefresh: { state: 'rateLimited', retryAt: now + (DEFAULT_RETRY_AFTER_SECONDS - 60) * 1000, at: now } };
+    case 'refreshFailed': return { ...base, phase: 'ready', snapshot: snapshotFor(vehicle, now, 'fresh'), hasSession: true, lastSyncedAt: now - 60_000,
+      liveRefresh: { state: 'failed', retryAt: null, at: now } };
     case 'loading': return { ...base, phase: 'loading', snapshot: null, hasSession: true, lastSyncedAt: null };
     case 'notFetched': return { ...base, phase: 'ready', snapshot: null, hasSession: true, lastSyncedAt: null };
     case 'updateFailed': return { ...base, phase: 'failed', snapshot: snapshotFor(vehicle, now, 'stale'), hasSession: true, lastSyncedAt: now - 3 * 3600_000 };

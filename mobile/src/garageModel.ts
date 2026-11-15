@@ -1,5 +1,6 @@
 // Pure presentation state for the Garage. No React Native imports so the logic runs under `node --test`.
 import { DAY_MS, idleDays, isFresh, type Drive, type Snapshot } from './telemetry.ts';
+import type { LiveRefresh } from './liveRefresh.ts';
 
 export type Phase = 'unconfigured' | 'signedOut' | 'signingIn' | 'loading' | 'ready' | 'failed' | 'expired';
 
@@ -37,7 +38,11 @@ export type VehicleInfo = {
  * Data for one vehicle. In production only the Range Rover has one (the live Nostos gateway); Ferrari and BMW have
  * none and render as not connected / setup required. Demo mode (src/demo) supplies synthetic feeds for all three.
  */
-export type Feed = GarageInput & { demo?: boolean };
+export type Feed = GarageInput & {
+  demo?: boolean;
+  /** Demo only: a synthetic "Update now" state. Live feeds use the hook's `liveRefresh` instead. */
+  liveRefresh?: LiveRefresh;
+};
 
 export const VEHICLES: readonly VehicleInfo[] = [
   {
@@ -162,6 +167,12 @@ export function connectionState(input: GarageInput, now: number, vehicle = 0): C
   return make('stale', 'Last update is stale', 'Last update is stale',
     'The latest vehicle report is older than 36 hours. Values may not reflect the vehicle now.', 'refresh');
 }
+
+/**
+ * Whether "Update now" (live vehicle read) is offered: signed in with a report or a retryable state, and also while a
+ * stored-report GET is running over existing values, so the action does not blink out during the rate-limit fallback.
+ */
+export const offersUpdateNow = (connection: Connection) => connection.action === 'refresh' || connection.kind === 'refreshing';
 
 const jst = 'Asia/Tokyo';
 const timeFormat = new Intl.DateTimeFormat('en', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: jst });

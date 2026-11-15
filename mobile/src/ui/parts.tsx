@@ -3,13 +3,14 @@ import { RefreshControl, View, type StyleProp, type ViewStyle } from 'react-nati
 import Animated, { useAnimatedScrollHandler } from 'react-native-reanimated';
 import type { GarageData } from '../useGarage';
 import { vehicleFeeds, type Feed, type GarageInput } from '../garageModel.ts';
+import { liveRefreshView } from '../liveRefresh.ts';
 import { PressScale, Reveal, haptics } from './motion';
 import { useEntry, useNav } from './stack';
 import { useSafeFrame } from './safe';
 import { canvases, fontScaleCap } from './safeArea';
 import { At, FontCapProvider, Label, ink, medium, mute, place, regular, rule, semibold, typeStyle, usePx, white, type Px } from './theme';
 
-export type Data = Pick<GarageData, 'snapshot' | 'phase' | 'refresh' | 'signIn' | 'signOut' | 'notificationFailed' | 'discoveryFailed'
+export type Data = Pick<GarageData, 'snapshot' | 'phase' | 'refresh' | 'refreshNow' | 'liveRefresh' | 'signIn' | 'signOut' | 'notificationFailed' | 'discoveryFailed'
   | 'lastSyncedAt' | 'retryDiscovery' | 'hasSession' | 'canSignIn'> & {
   /** Synthetic per-vehicle feeds. Set only by the demo/preview entry point (src/demo); production leaves it undefined. */
   demo?: readonly Feed[] | null;
@@ -32,25 +33,29 @@ export function useFeed(vehicle: number): Feed | null {
 }
 
 /**
- * Pull-to-refresh that only spins for a pull the user made, then confirms the outcome with a haptic.
+ * Pull-to-refresh that only spins for a pull the user made, then confirms the outcome with a haptic. A pull asks for a
+ * live vehicle read ("Update now"); when the gateway is rate limited it falls back to the stored report.
  */
 export function usePullToRefresh() {
   const data = useData();
   const { insets } = useSafeFrame();
-  const [pulling, setPulling] = useState(false);
+  const [pulling, setPulling] = useState<number | null>(null);
+  const live = data.liveRefresh;
   useEffect(() => {
-    if (!pulling || data.phase === 'loading') return;
-    setPulling(false);
-    if (data.phase === 'ready') haptics.success();
-    else if (data.phase === 'failed' || data.phase === 'expired') haptics.warning();
-  }, [pulling, data.phase]);
+    if (pulling === null || data.phase === 'loading' || live.state === 'requesting') return;
+    setPulling(null);
+    // An outcome of this pull's live read decides the haptic; otherwise the GET result does.
+    const outcome = live.at !== null && live.at >= pulling ? live.state : liveRefreshView(live, Date.now());
+    if (data.phase === 'expired' || data.phase === 'failed' || outcome === 'rateLimited' || outcome === 'failed') haptics.warning();
+    else if (data.phase === 'ready') haptics.success();
+  }, [pulling, data.phase, live]);
   if (!data.hasSession) return undefined;
   // Scroll views run edge to edge (contentInsetAdjustmentBehavior "never"), so the spinner is moved below the
   // status bar / Dynamic Island explicitly.
-  return <RefreshControl tintColor={mute} progressViewOffset={insets.top} refreshing={pulling} onRefresh={() => {
+  return <RefreshControl tintColor={mute} progressViewOffset={insets.top} refreshing={pulling !== null} onRefresh={() => {
     haptics.soft();
-    setPulling(true);
-    void data.refresh();
+    setPulling(Date.now());
+    void data.refreshNow();
   }} />;
 }
 
