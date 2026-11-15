@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-  buildApiErrorCode, correlationId, describeShape, dpopClaims, probeRecord, safeSchemaKey, dpopNonce, jlrResourceHeaders, normaliseVin,
+  buildApiErrorCode, claimRun, correlationId, describeShape, retryAfterSeconds, dpopClaims, probeRecord, safeSchemaKey, dpopNonce, jlrResourceHeaders, normaliseVin,
   safeContentType, sanitizeIngestionCode, scopeNames, shouldRetryDpop, wwwAuthenticateError,
 } from './worker.js';
 
@@ -151,4 +151,27 @@ test('schema probe caps size and records error type for failed calls without val
   const ok = probeRecord('status', { ok: true, data: { vehicle: { range: 412 } } });
   assert.equal(ok.outcome, 'ok');
   assert.equal(JSON.stringify(ok).includes('412'), false);
+});
+
+test('rate limit: retry-after is derived from the last run start (SQLite UTC format)', () => {
+  const now = Date.parse('2026-11-15T07:40:00Z');
+  assert.equal(retryAfterSeconds('2026-11-15 07:38:00', 300, now), 180);
+  assert.equal(retryAfterSeconds('2026-11-15T07:38:00.000Z', 300, now), 180);
+  assert.equal(retryAfterSeconds('2026-11-15 07:44:59', 300, now), 300);
+  assert.equal(retryAfterSeconds('2026-11-15 07:30:00', 300, now), 1);
+  assert.equal(retryAfterSeconds(null, 300, now), 300);
+});
+
+test('rate limit: a run is claimed with one conditional INSERT, otherwise rate limited', async () => {
+  const calls = [];
+  const db = (changes, last) => ({ prepare(sql) {
+    return { bind(...args) { calls.push({ sql, args }); return this; },
+      run: async () => ({ meta: { changes } }), first: async () => last };
+  } });
+  assert.deepEqual(await claimRun(db(1), 'run-1', 300), { claimed: true });
+  assert.match(calls[0].sql, /INSERT INTO ingestion_runs[\s\S]*WHERE NOT EXISTS/);
+  assert.deepEqual(calls[0].args, ['run-1', '-300 seconds']);
+  const limited = await claimRun(db(0, { started_at: new Date(Date.now() - 60000).toISOString() }), 'run-2', 300);
+  assert.equal(limited.claimed, false);
+  assert.ok(limited.retryAfterSeconds > 230 && limited.retryAfterSeconds <= 240);
 });

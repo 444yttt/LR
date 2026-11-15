@@ -104,3 +104,7 @@ On every collection the Worker stores the **structure only** of the JLR `status`
 npx wrangler d1 execute garage-monitor --remote --command \
   "SELECT endpoint,observed_at,outcome,http_status,error_code,path_count,truncated,paths_json FROM jlr_schema_probes;"
 ```
+
+## On-demand refresh (2026-11-15)
+
+`POST https://garage-api.naus.studio/v1/range-rover/refresh` (same owner-only Access auth as the GET) calls the collector's RPC entrypoint `Collector.refresh()` (`cloudflare/src/entry.js`) through the gateway's `COLLECTOR` service binding. It runs the same read-only JLR requests as the daily cron (token refresh + GET journeys/status/diagnostics/ev; no vehicle commands) and returns the fresh snapshot (200). Reads are rate limited to one per 5 minutes (cron: one per 2 minutes) by a single conditional `INSERT` into `ingestion_runs`, so the cron and an owner tap can never rotate the JLR refresh token concurrently. Rate limited → 429 with `Retry-After` and `retryAfterSeconds`; failed read → 502 `refresh_failed`. The collector entry module is now `src/entry.js` (re-exports the `worker.js` handlers).

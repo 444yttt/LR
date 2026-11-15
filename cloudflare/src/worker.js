@@ -287,13 +287,32 @@ function parseEnd(item){
   }
   return null;
 }
-async function collect(env){
+// Minimum gap between JLR reads. One atomic INSERT both checks the gap and claims the run, so two
+// callers (cron + on-demand) can never refresh the rotating JLR token at the same time.
+export const ON_DEMAND_MIN_INTERVAL_S=300;
+export const SCHEDULED_MIN_INTERVAL_S=120;
+export function retryAfterSeconds(lastStartedAt,minIntervalS,nowMs){
+  const started=Date.parse(String(lastStartedAt||'').replace(' ','T')+(/[zZ]|[+-]\d\d:?\d\d$/.test(String(lastStartedAt||''))?'':'Z'));
+  if(!Number.isFinite(started))return minIntervalS;
+  return Math.max(1,Math.min(minIntervalS,Math.ceil((started+minIntervalS*1000-nowMs)/1000)));
+}
+export async function claimRun(db,id,minIntervalS){
+  const claimed=await db.prepare(`INSERT INTO ingestion_runs(id,vehicle_id,source,status)
+    SELECT ?,'range-l460','jlr','running' WHERE NOT EXISTS (
+      SELECT 1 FROM ingestion_runs WHERE vehicle_id='range-l460' AND started_at>datetime('now',?))`)
+    .bind(id,'-'+Math.floor(minIntervalS)+' seconds').run();
+  if(claimed?.meta?.changes===1)return {claimed:true};
+  const last=await db.prepare("SELECT started_at FROM ingestion_runs WHERE vehicle_id='range-l460' ORDER BY started_at DESC LIMIT 1").first();
+  return {claimed:false,retryAfterSeconds:retryAfterSeconds(last?.started_at,minIntervalS,Date.now())};
+}
+export async function collect(env,{minIntervalS=SCHEDULED_MIN_INTERVAL_S}={}){
   assertConfigured(env);
   if(!env.DB)throw new Error('not_configured:DB');
   const lock=await env.DB.prepare('SELECT enabled FROM vehicles WHERE id=?').bind('range-l460').first();
   if(!lock?.enabled)return {status:'disabled'};
   const id=crypto.randomUUID();
-  await env.DB.prepare("INSERT INTO ingestion_runs(id,vehicle_id,source,status) VALUES(?,'range-l460','jlr','running')").bind(id).run();
+  const claim=await claimRun(env.DB,id,minIntervalS);
+  if(!claim.claimed)return {status:'rate_limited',retryAfterSeconds:claim.retryAfterSeconds};
   let n=0,pages=0,latest=null,complete=false;
   try{
     const vin=normaliseVin(env.JLR_VIN);

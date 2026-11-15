@@ -114,3 +114,42 @@ test('shows unverified journey ends only when GARAGE_TRUST_UNVERIFIED_DRIVES is 
   assert.equal(body.lastDriveVerified, true);
   assert.equal(body.lastDriveTrust, 'owner-approved-unverified');
 });
+
+test('POST /refresh: owner only, maps collector results to 200 / 429 / 502', async t => {
+  const { publicKey, privateKey } = await generateKeyPair('ES256');
+  const key = await exportJWK(publicKey);
+  key.kid = 'refresh-key';
+  const issuer = 'https://refresh.example';
+  t.mock.method(globalThis, 'fetch', async () => Response.json({ keys: [key] }));
+  let calls = 0;
+  let next = { status: 'complete' };
+  const DB = { prepare: sql => ({
+    first: async () => sql.includes('FROM vehicles') ? { enabled: 1 } : null,
+    all: async () => ({ results: [] }),
+  }) };
+  const env = { DB, COLLECTOR: { refresh: async () => { calls++; return next; } },
+    GARAGE_ISSUER: issuer, GARAGE_JWKS_URL: issuer + '/jwks', GARAGE_AUDIENCE: 'aud', GARAGE_OWNER_EMAIL: 'owner@example.com' };
+  const sign = email => new SignJWT({ email }).setProtectedHeader({ alg: 'ES256', kid: key.kid })
+    .setIssuer(issuer).setSubject('s').setAudience('aud').setExpirationTime(Math.floor(Date.now() / 1000) + 60).sign(privateKey);
+  const post = token => worker.fetch(new Request('https://garage.example/v1/range-rover/refresh', {
+    method: 'POST', headers: token ? { Authorization: 'Bearer ' + token } : {} }), env);
+  t.mock.method(console, 'log', () => {});
+  assert.equal((await post(null)).status, 401);
+  assert.equal((await post(await sign('someone@example.com'))).status, 401);
+  assert.equal(calls, 0);
+  const owner = await sign('owner@example.com');
+  const ok = await post(owner);
+  assert.equal(ok.status, 200);
+  assert.equal((await ok.json()).status, 'pending');
+  next = { status: 'rate_limited', retryAfterSeconds: 123.4 };
+  const limited = await post(owner);
+  assert.equal(limited.status, 429);
+  assert.equal(limited.headers.get('Retry-After'), '124');
+  assert.deepEqual(await limited.json(), { error: 'rate_limited', retryAfterSeconds: 124 });
+  next = { status: 'error' };
+  assert.equal((await post(owner)).status, 502);
+  env.COLLECTOR = { refresh: async () => { throw new Error('rpc down'); } };
+  assert.equal((await post(owner)).status, 502);
+  const getAsPost = await worker.fetch(new Request('https://garage.example/v1/range-rover', { method: 'POST' }), env);
+  assert.equal(getAsPost.status, 404);
+});

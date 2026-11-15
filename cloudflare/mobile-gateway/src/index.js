@@ -3,8 +3,8 @@ import { createRemoteJWKSet, jwtVerify } from 'jose';
 const maxAgeMs = 36 * 3600000;
 const keys = new Map();
 
-function response(body, status = 200) {
-  return Response.json(body, { status, headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
+function response(body, status = 200, extra = {}) {
+  return Response.json(body, { status, headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', ...extra } });
 }
 
 function jwksFor(url) {
@@ -97,7 +97,9 @@ export function snapshotStatus(snapshot, run, now) {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    if (request.method !== 'GET' || url.pathname !== '/v1/range-rover') return response({ error: 'not_found' }, 404);
+    const read = request.method === 'GET' && url.pathname === '/v1/range-rover';
+    const refresh = request.method === 'POST' && url.pathname === '/v1/range-rover/refresh';
+    if (!read && !refresh) return response({ error: 'not_found' }, 404);
     if (!env.GARAGE_ISSUER || !env.GARAGE_JWKS_URL || !env.GARAGE_AUDIENCE || !env.GARAGE_OWNER_EMAIL || !env.DB) {
       return response({ error: 'unavailable' }, 503);
     }
@@ -107,6 +109,19 @@ export default {
     if (!auth.ok) {
       console.log(JSON.stringify({ event: 'auth_denied', ...auth.diagnostics }));
       return response({ error: 'unauthorized' }, 401);
+    }
+    if (refresh) {
+      // Owner-triggered, read-only vehicle read through the collector's RPC entrypoint. The collector
+      // enforces the 5-minute gap atomically in D1, shared with the daily cron.
+      if (!env.COLLECTOR) return response({ error: 'unavailable' }, 503);
+      let result;
+      try { result = await env.COLLECTOR.refresh(); } catch { result = { status: 'error' }; }
+      if (result?.status === 'rate_limited') {
+        const retry = Math.max(1, Math.min(300, Math.ceil(Number(result.retryAfterSeconds) || 300)));
+        return response({ error: 'rate_limited', retryAfterSeconds: retry }, 429, { 'Retry-After': String(retry) });
+      }
+      if (result?.status === 'disabled') return response({ error: 'unavailable' }, 503);
+      if (result?.status !== 'complete') return response({ error: 'refresh_failed' }, 502);
     }
     try {
       const vehicle = await env.DB.prepare("SELECT enabled FROM vehicles WHERE id='range-l460'").first();

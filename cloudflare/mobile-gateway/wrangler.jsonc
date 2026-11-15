@@ -9,6 +9,10 @@
   "routes": [
     { "pattern": "garage-api.naus.studio", "custom_domain": true }
   ],
+  // Read-only on-demand refresh: RPC into the collector Worker (entrypoint Collector in cloudflare/src/entry.js).
+  "services": [
+    { "binding": "COLLECTOR", "service": "garage-monitor", "entrypoint": "Collector" }
+  ],
   "d1_databases": [
     { "binding": "DB", "database_name": "garage-monitor", "database_id": "d30dd500-c685-4076-88b4-e352f67c7849" }
   ],
