@@ -95,3 +95,12 @@ JLR owner API was tested from Codespaces using Japanese L460:
 4. Set `snapshots.last_drive_verified=1` after verification, without falsifying previous runs.
 5. Validate real returned range/fuel/diagnostics fields before exposing UI values.
 6. Configure APNs/email/push and confirm delivery. Pending rows are not sent notifications. `alert_events.delivery_status=pending` is **not** a sent notification.
+
+## JLR response structure probe (2026-11-15)
+
+On every collection the Worker stores the **structure only** of the JLR `status` and `diagnostics` responses in D1 table `jlr_schema_probes` (migration `0002`, one row per endpoint, latest wins): key paths with JSON value types (for example `$.vehicle.range.value:number`), the outcome, and for failures the HTTP status plus the sanitized error code. No values are stored; keys that look like VINs, dates, numbers or ids become placeholders. No extra JLR requests are made. Read it with:
+
+```bash
+npx wrangler d1 execute garage-monitor --remote --command \
+  "SELECT endpoint,observed_at,outcome,http_status,error_code,path_count,truncated,paths_json FROM jlr_schema_probes;"
+```

@@ -221,6 +221,62 @@ function normaliseJlr(status,diagnostics,ev){
     healthUpdatedAt:iso(diagnostics?.lastUpdated)
   };
 }
+// Structure-only probe: key paths and JSON value types, never values. Keys that could carry data
+// (VIN-like, dates, numbers, ids, long or unusual strings) are replaced with a placeholder.
+const SCHEMA_MAX_PATHS=400;
+const SCHEMA_MAX_DEPTH=10;
+export function safeSchemaKey(key){
+  if(typeof key!=='string'||!key.length)return '<empty>';
+  if(key.length>64)return '<long-key>';
+  if(/[A-HJ-NPR-Z0-9]{17}/i.test(key))return '<id-key>';
+  if(/^\d+$/.test(key))return '<n>';
+  if(/\d{4}-?\d{2}-?\d{2}/.test(key))return '<date-key>';
+  if(/^[0-9a-f-]{12,}$/i.test(key)||/\d{6,}/.test(key))return '<id-key>';
+  if(!/^[A-Za-z_][A-Za-z0-9_-]*$/.test(key))return '<other-key>';
+  return key;
+}
+function schemaType(v){return v===null?'null':Array.isArray(v)?'array':typeof v;}
+export function describeShape(value){
+  const types=new Map();
+  let truncated=false;
+  const walk=(v,path,depth)=>{
+    if(!types.has(path)){
+      if(types.size>=SCHEMA_MAX_PATHS){truncated=true;return;}
+      types.set(path,new Set());
+    }
+    const t=schemaType(v);
+    types.get(path).add(t);
+    if(depth>=SCHEMA_MAX_DEPTH){if(t==='array'||t==='object')truncated=true;return;}
+    if(t==='array'){for(const item of v.slice(0,25))walk(item,path+'[]',depth+1);if(v.length>25)truncated=true;}
+    else if(t==='object'){for(const k of Object.keys(v))walk(v[k],path+'.'+safeSchemaKey(k),depth+1);}
+  };
+  walk(value,'$',0);
+  const paths=[...types].map(([p,set])=>p+':'+[...set].sort().join('|')).sort();
+  return {paths,truncated};
+}
+export function probeRecord(endpoint,result){
+  if(result.ok){
+    const {paths,truncated}=describeShape(result.data);
+    return {endpoint,outcome:'ok',httpStatus:null,errorCode:null,paths,truncated};
+  }
+  const code=result.errorCode||'unknown';
+  const http=/^api_http_(\d{3})/.exec(code);
+  return {endpoint,outcome:'error',httpStatus:http?Number(http[1]):null,errorCode:code,paths:[],truncated:false};
+}
+async function probeJson(url,token,key,endpoint){
+  try{return {ok:true,data:await getJson(url,token,key,endpoint)};}
+  catch(e){
+    const code=e?.ingestionCode?sanitizeIngestionCode(e.ingestionCode,true):sanitizeIngestionCode(e?.name==='SyntaxError'?'invalid_json':(e?.message||'unknown'));
+    return {ok:false,errorCode:code};
+  }
+}
+async function saveProbes(env,records){
+  const at=now();
+  await env.DB.batch(records.map(r=>env.DB.prepare(`INSERT INTO jlr_schema_probes(endpoint,observed_at,outcome,http_status,error_code,path_count,truncated,paths_json)
+    VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(endpoint) DO UPDATE SET observed_at=excluded.observed_at,outcome=excluded.outcome,
+    http_status=excluded.http_status,error_code=excluded.error_code,path_count=excluded.path_count,truncated=excluded.truncated,paths_json=excluded.paths_json`)
+    .bind(r.endpoint,at,r.outcome,r.httpStatus,r.errorCode,r.paths.length,r.truncated?1:0,JSON.stringify(r.paths))));
+}
 function parseEnd(item){
   for(const field of ['endTime','endedAt','endDateTime','endTimestamp','arrivalTime']){
     const v=item?.[field];
@@ -271,11 +327,16 @@ async function collect(env){
     if(!complete)throw new Error('pagination_incomplete');
     // Optional probes: failure in one category must not suppress the verified journey result.
     const base=ORIGIN+'/v1/vehicles/'+encodeURIComponent(vin);
-    const [status,diagnostics,ev]=await Promise.all([
-      getJson(base+'/status',token.access_token,priv,'status').catch(()=>null),
-      getJson(base+'/diagnostics',token.access_token,priv,'diagnostics').catch(()=>null),
+    // Same three requests as before; the status/diagnostics results also feed the structure probe.
+    const [statusResult,diagnosticsResult,ev]=await Promise.all([
+      probeJson(base+'/status',token.access_token,priv,'status'),
+      probeJson(base+'/diagnostics',token.access_token,priv,'diagnostics'),
       getJson(base+'/ev',token.access_token,priv,'ev').catch(()=>null)
     ]);
+    const status=statusResult.ok?statusResult.data:null;
+    const diagnostics=diagnosticsResult.ok?diagnosticsResult.data:null;
+    try{await saveProbes(env,[probeRecord('status',statusResult),probeRecord('diagnostics',diagnosticsResult)]);}
+    catch{console.log('garage_schema_probe_failed');}
     const signals=normaliseJlr(status,diagnostics,ev);
     // Protect against missing data or stale API: never assert 'not driven' if there is no reliable journey end.
     if(latest===null)throw new Error('no_journey_end');

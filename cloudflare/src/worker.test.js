@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-  buildApiErrorCode, correlationId, dpopClaims, dpopNonce, jlrResourceHeaders, normaliseVin,
+  buildApiErrorCode, correlationId, describeShape, dpopClaims, probeRecord, safeSchemaKey, dpopNonce, jlrResourceHeaders, normaliseVin,
   safeContentType, sanitizeIngestionCode, scopeNames, shouldRetryDpop, wwwAuthenticateError,
 } from './worker.js';
 
@@ -108,3 +108,47 @@ test('DPoP nonce retry runs only for a use_dpop_nonce challenge that includes a 
 function ORIGIN_URL() {
   return `https://data.jlr-vcdp.com/v1/vehicles/${SYNTHETIC_VIN}/journeys?page=0`;
 }
+
+test('schema probe records key paths and value types only, never values', () => {
+  const secretValues = [SYNTHETIC_VIN, OTHER_SECRET, 'Tokyo', '35.6812', 139.7671, 412, 63.5, '2026-11-14T03:00:00Z', 'LOCKED'];
+  const payload = {
+    vin: SYNTHETIC_VIN,
+    vehicle: {
+      range: { value: 412, unit: 'km' },
+      powertrain: { fuelSystem: { relativeLevel: 63.5 } },
+      location: { lat: '35.6812', lon: 139.7671, city: 'Tokyo' },
+      doors: 'LOCKED',
+      lastUpdated: '2026-11-14T03:00:00Z',
+    },
+    signals: [{ name: 'x', value: OTHER_SECRET }, { name: 'y', value: null }],
+    [SYNTHETIC_VIN]: { nested: true },
+    '2026-11-14': 1,
+    '12345678': 2,
+  };
+  const { paths, truncated } = describeShape(payload);
+  assert.equal(truncated, false);
+  const text = JSON.stringify(paths);
+  for (const value of secretValues) assert.equal(text.includes(String(value)), false, 'leaked ' + value);
+  assert.ok(paths.includes('$.vehicle.range.value:number'));
+  assert.ok(paths.includes('$.vehicle.powertrain.fuelSystem.relativeLevel:number'));
+  assert.ok(paths.includes('$.vehicle.location.city:string'));
+  assert.ok(paths.includes('$.signals[].value:null|string'));
+  assert.ok(paths.includes('$.<id-key>.nested:boolean'));
+  assert.ok(paths.includes('$.<date-key>:number'));
+  assert.ok(paths.includes('$.<n>:number'));
+  assert.equal(safeSchemaKey('a'.repeat(65)), '<long-key>');
+  assert.equal(safeSchemaKey('has space'), '<other-key>');
+});
+
+test('schema probe caps size and records error type for failed calls without values', () => {
+  const wide = Object.fromEntries(Array.from({ length: 500 }, (_, i) => ['k' + i.toString(36) + 'x', i]));
+  const big = describeShape(wide);
+  assert.equal(big.truncated, true);
+  assert.ok(big.paths.length <= 400);
+  const failed = probeRecord('diagnostics', { ok: false, errorCode: 'api_http_403:diagnostics:www-insufficient_scope:scopes-openid' });
+  assert.deepEqual(failed, { endpoint: 'diagnostics', outcome: 'error', httpStatus: 403,
+    errorCode: 'api_http_403:diagnostics:www-insufficient_scope:scopes-openid', paths: [], truncated: false });
+  const ok = probeRecord('status', { ok: true, data: { vehicle: { range: 412 } } });
+  assert.equal(ok.outcome, 'ok');
+  assert.equal(JSON.stringify(ok).includes('412'), false);
+});
