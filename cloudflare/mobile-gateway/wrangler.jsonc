@@ -4,8 +4,14 @@
   "compatibility_date": "2026-11-12",
   "workers_dev": false,
   "preview_urls": false,
+  // Workers Logs: the gateway logs only auth-failure reasons (claim names, yes/no checks), never tokens or emails.
+  "observability": { "enabled": true },
   "routes": [
     { "pattern": "garage-api.naus.studio", "custom_domain": true }
+  ],
+  // Read-only on-demand refresh: RPC into the collector Worker (entrypoint Collector in cloudflare/src/entry.js).
+  "services": [
+    { "binding": "COLLECTOR", "service": "garage-monitor", "entrypoint": "Collector" }
   ],
   "d1_databases": [
     { "binding": "DB", "database_name": "garage-monitor", "database_id": "d30dd500-c685-4076-88b4-e352f67c7849" }
@@ -16,6 +22,8 @@
     "GARAGE_ISSUER": "https://naus-studio.cloudflareaccess.com/cdn-cgi/access/sso/oidc/b96998208e4df9da11aef69b82b65781982957615e95885b5cbea1151ae2931b",
     "GARAGE_JWKS_URL": "https://naus-studio.cloudflareaccess.com/cdn-cgi/access/sso/oidc/b96998208e4df9da11aef69b82b65781982957615e95885b5cbea1151ae2931b/jwks",
     "GARAGE_AUDIENCE": "b96998208e4df9da11aef69b82b65781982957615e95885b5cbea1151ae2931b",
-    "GARAGE_OWNER_EMAIL": "esc_corporate@icloud.com"
+    "GARAGE_OWNER_EMAIL": "esc_corporate@icloud.com",
+    // Owner decision 2026-11-15: show journey end times before the Remote-app cross-check.
+    "GARAGE_TRUST_UNVERIFIED_DRIVES": "true"
   }
 }

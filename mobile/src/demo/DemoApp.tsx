@@ -6,6 +6,7 @@ import { GarageApp } from '../GarageApp';
 import type { Data } from '../ui/parts';
 import { PressScale } from '../ui/motion';
 import { Label, ink, medium, typeStyle, usePx, white } from '../ui/theme';
+import { initialLiveRefresh } from '../liveRefresh';
 import { DEMO_SCENARIOS, demoFeeds, demoScenarioLabel, type DemoScenario } from './fixtures';
 
 const noop = async () => undefined;
@@ -17,7 +18,7 @@ export function demoData(scenario: DemoScenario, now: number): Data {
   return {
     phase: rover.phase, snapshot: rover.snapshot, hasSession: rover.hasSession, discoveryFailed: false, lastSyncedAt: rover.lastSyncedAt,
     notificationFailed: false, canSignIn: false,
-    refresh: noop, signIn: noop, signOut: noop, retryDiscovery: () => undefined,
+    refresh: noop, refreshNow: noop, liveRefresh: rover.liveRefresh ?? initialLiveRefresh, signIn: noop, signOut: noop, retryDiscovery: () => undefined,
     demo: feeds,
   };
 }

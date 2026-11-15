@@ -39,7 +39,7 @@ test('production feeds: only the Range Rover has data; Ferrari 296 and BMW X7 ha
 });
 
 test('demo feeds cover every vehicle in every state and are always flagged as demo', () => {
-  const expected = { live: 'fresh', loading: 'connecting', notFetched: 'notFetched', updateFailed: 'updateFailed', authExpired: 'authExpired', empty: 'fresh' };
+  const expected = { live: 'fresh', requesting: 'fresh', rateLimited: 'fresh', refreshFailed: 'fresh', loading: 'connecting', notFetched: 'notFetched', updateFailed: 'updateFailed', authExpired: 'authExpired', empty: 'fresh' };
   for (const scenario of DEMO_SCENARIOS) {
     const feeds = vehicleFeeds(live, demoFeeds(scenario, now));
     assert.equal(feeds.length, 3);

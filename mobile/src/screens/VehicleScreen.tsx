@@ -1,11 +1,12 @@
-import { Pressable, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import Animated, { useAnimatedScrollHandler } from 'react-native-reanimated';
-import { VEHICLES, connectionState, healthView, lastUpdateLine, metrics } from '../garageModel.ts';
+import { VEHICLES, connectionState, healthView, lastUpdateLine, metrics, offersUpdateNow } from '../garageModel.ts';
 import { CountUp, PressScale, Skeleton, useProgressReveal } from '../ui/motion';
 import { ActionRow, BackButton, useFeed, usePullToRefresh } from '../ui/parts';
 import { useSafeFrame } from '../ui/safe';
 import { canvases } from '../ui/safeArea';
 import { useNav, type Entry } from '../ui/stack';
+import { LiveStatusLine, UpdateNowButton, UpdatingPulse } from '../ui/live';
 import { HeroStage } from '../ui/stage';
 import { At, Label, ink, medium, mute, place, regular, rule, semibold, typeStyle, useNow, usePx, white, type Px } from '../ui/theme';
 
@@ -25,6 +26,8 @@ export function VehicleScreen({ entry, vehicle }: { entry: Entry; vehicle: numbe
   const values = metrics(feed, now);
   const health = healthView(vehicle, feed, now);
   const status = connection?.status ?? info.offlineStatus;
+  // "Update now" only where a live read makes sense: a signed-in feed that is not waiting for its first data.
+  const updatable = connection ? offersUpdateNow(connection) : false;
   const footer = feed ? (feed.demo ? 'Demo data · ' : '') + lastUpdateLine(feed.snapshot, now) : 'Live vehicle data unavailable';
   const refresh = usePullToRefresh();
   const onScroll = useAnimatedScrollHandler(event => { entry.scroll.value = event.contentOffset.y; });
@@ -53,6 +56,9 @@ export function VehicleScreen({ entry, vehicle }: { entry: Entry; vehicle: numbe
           hitSlop={10} onPress={() => nav.push({ name: 'connection', vehicle })} style={place(px, 23, 170)}>
           <Label style={typeStyle(px, 10, medium, mute)}>{status.toUpperCase()}</Label>
         </Pressable>
+        {updatable && <View style={[place(px, 214, 156, 160, 32), { alignItems: 'flex-end' }]} pointerEvents="box-none">
+          <UpdateNowButton px={px} vehicle={vehicle} />
+        </View>}
       </Animated.View>
 
       <HeroStage px={px} index={vehicle} origin={entry.origin} progress={p} scrollOffset={entry.scroll} onReady={entry.begin} top={safe.top} />
@@ -61,15 +67,18 @@ export function VehicleScreen({ entry, vehicle }: { entry: Entry; vehicle: numbe
         <View style={[place(px, 174, 21, 1, 125), { backgroundColor: rule }]} />
         <View style={[place(px, 14, 94, 328, 1), { backgroundColor: rule }]} />
         <At px={px} value="RANGE" x={14} y={22} size={10} font={medium} color={mute} />
-        <Metric px={px} x={14} y={45} loading={loading} value={values.rangeKm} suffix=" km" empty="— km" style={metric} />
         <At px={px} value="FUEL" x={188} y={22} size={10} font={medium} color={mute} />
-        <Metric px={px} x={188} y={45} loading={loading} value={values.fuelPercent} suffix=" %" empty="— %" style={metric} />
         <At px={px} value="LAST DRIVE" x={14} y={108} size={10} font={medium} color={mute} />
-        {loading ? <Skeleton width={px(96)} height={px(13)} radius={px(5)} style={place(px, 14, 131)} />
-          : <At px={px} value={values.lastDrive ?? '—'} x={14} y={128} size={15} font={semibold} />}
         <At px={px} value="IDLE" x={188} y={108} size={10} font={medium} color={mute} />
-        {loading ? <Skeleton width={px(56)} height={px(13)} radius={px(5)} style={place(px, 188, 131)} />
-          : <At px={px} value={values.idleDays !== null ? values.idleDays + (values.idleDays === 1 ? ' day' : ' days') : '—'} x={188} y={128} size={16} font={semibold} />}
+        {/* Values breathe while the vehicle is being read; new values then glide in through CountUp. */}
+        <UpdatingPulse vehicle={vehicle} style={StyleSheet.absoluteFill}>
+          <Metric px={px} x={14} y={45} loading={loading} value={values.rangeKm} suffix=" km" empty="— km" style={metric} />
+          <Metric px={px} x={188} y={45} loading={loading} value={values.fuelPercent} suffix=" %" empty="— %" style={metric} />
+          {loading ? <Skeleton width={px(96)} height={px(13)} radius={px(5)} style={place(px, 14, 131)} />
+            : <At px={px} value={values.lastDrive ?? '—'} x={14} y={128} size={15} font={semibold} />}
+          {loading ? <Skeleton width={px(56)} height={px(13)} radius={px(5)} style={place(px, 188, 131)} />
+            : <At px={px} value={values.idleDays !== null ? values.idleDays + (values.idleDays === 1 ? ' day' : ' days') : '—'} x={188} y={128} size={16} font={semibold} />}
+        </UpdatingPulse>
       </Animated.View>
 
       <Animated.View style={[place(px, 16, 606, 358, 121), info2]}>
@@ -91,7 +100,9 @@ export function VehicleScreen({ entry, vehicle }: { entry: Entry; vehicle: numbe
       <Animated.View style={[place(px, 16, 838, 358, 40), info4]}>
         <View style={{ height: 1, backgroundColor: rule }} />
         <Pressable accessibilityRole="button" accessibilityHint="Opens connection settings" onPress={() => nav.push({ name: 'connection', vehicle })} hitSlop={8}>
-          <Label style={typeStyle(px, 10, regular, mute, { marginTop: px(13), marginLeft: px(6) })}>{footer}</Label>
+          <View style={{ marginTop: px(13), marginLeft: px(6) }}>
+            <LiveStatusLine vehicle={vehicle} idle={footer} style={typeStyle(px, 10, regular, mute)} />
+          </View>
         </Pressable>
       </Animated.View>
     </View>
