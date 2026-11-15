@@ -1,7 +1,7 @@
 // Vehicle stage geometry (Final / Light Floor), in design points. Pure TS so tests can check it against the PNGs.
 
 /** Pixel size of each vehicle PNG (asserted against the files in test/vehicleAssets.test.ts). */
-export const carPixels: readonly (readonly [number, number])[] = [[1760, 675], [1779, 542], [1759, 649]];
+export const carPixels: readonly (readonly [number, number])[] = [[1570, 618], [1779, 542], [1629, 641]];
 /** Intrinsic width / height of each vehicle PNG. */
 export const carAspect = carPixels.map(([w, h]) => w / h);
 /** Car width on the detail stage (pt). The card stage draws every car at `cardScale` of it. */

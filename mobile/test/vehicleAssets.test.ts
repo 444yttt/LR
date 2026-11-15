@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { inflateSync } from 'node:zlib';
 import { carAspect, carPixels, profiles, shadows } from '../src/vehicleGeometry.ts';
-import { vehicleCredits } from '../src/credits.ts';
+import { ownerSuppliedImages, vehicleCredits } from '../src/credits.ts';
 
 const dir = new URL('../assets/vehicles/', import.meta.url).pathname;
 const files = ['range-rover-l460.png', 'ferrari-296.png', 'bmw-x7.png'];
@@ -93,9 +93,16 @@ test('alpha is clean: transparent corners, tight crop, one blob, no light halo',
   });
 });
 
-test('every vehicle image is credited in the app and in ATTRIBUTION.md', () => {
+test('every vehicle image is credited in the app or owner-supplied, and recorded in ATTRIBUTION.md', () => {
   const record = readFileSync(dir + 'ATTRIBUTION.md', 'utf8');
-  assert.deepEqual(vehicleCredits.map(credit => credit.file), files);
+  const credited = vehicleCredits.map(credit => credit.file);
+  assert.deepEqual([...credited, ...ownerSuppliedImages].sort(), [...files].sort());
+  assert.ok(credited.every(file => !ownerSuppliedImages.includes(file)), 'no image is both credited and owner-supplied');
+  for (const file of ownerSuppliedImages) {
+    const section = record.split('## ' + file)[1]?.split('\n## ')[0] ?? '';
+    assert.ok(/owner-supplied/i.test(section), file + ' recorded as owner-supplied');
+    assert.ok(!section.includes('wikimedia.org'), file + ' has no stale Commons source');
+  }
   for (const credit of vehicleCredits) {
     assert.ok(record.includes('## ' + credit.file), credit.file);
     assert.ok(record.includes(credit.source), credit.file + ' source');
