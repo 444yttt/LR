@@ -14,6 +14,11 @@ function jwksFor(url) {
   return keys.get(uri.href);
 }
 
+export function isOwnerEmail(claim, owner) {
+  if (typeof claim !== 'string' || typeof owner !== 'string' || !owner.trim()) return false;
+  return claim.trim().toLowerCase() === owner.trim().toLowerCase();
+}
+
 export function snapshotStatus(snapshot, run, now) {
   if (run?.status === 'error') {
     if (/^(?:token_http_\d+_(?:invalid_grant|invalid_token|invalid_client)|api_http_401)(?:[:_]|$)/.test(run.error_code ?? '')) {
@@ -32,19 +37,20 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (request.method !== 'GET' || url.pathname !== '/v1/range-rover') return response({ error: 'not_found' }, 404);
-    if (!env.GARAGE_ISSUER || !env.GARAGE_JWKS_URL || !env.GARAGE_AUDIENCE || !env.GARAGE_OWNER_SUB || !env.DB) {
+    if (!env.GARAGE_ISSUER || !env.GARAGE_JWKS_URL || !env.GARAGE_AUDIENCE || !env.GARAGE_OWNER_EMAIL || !env.DB) {
       return response({ error: 'unavailable' }, 503);
     }
     const token = request.headers.get('Authorization')?.match(/^Bearer ([^\s]+)$/i)?.[1];
     if (!token) return response({ error: 'unauthorized' }, 401);
     try {
-      await jwtVerify(token, jwksFor(env.GARAGE_JWKS_URL), {
+      const { payload } = await jwtVerify(token, jwksFor(env.GARAGE_JWKS_URL), {
         issuer: env.GARAGE_ISSUER,
         audience: env.GARAGE_AUDIENCE,
-        subject: env.GARAGE_OWNER_SUB,
+        ...(env.GARAGE_OWNER_SUB ? { subject: env.GARAGE_OWNER_SUB } : {}),
         algorithms: ['RS256', 'ES256'],
-        requiredClaims: ['exp', 'sub', 'aud', 'iss'],
+        requiredClaims: ['exp', 'sub', 'aud', 'iss', 'email'],
       });
+      if (!isOwnerEmail(payload.email, env.GARAGE_OWNER_EMAIL)) throw new Error('not owner');
     } catch { return response({ error: 'unauthorized' }, 401); }
     try {
       const vehicle = await env.DB.prepare("SELECT enabled FROM vehicles WHERE id='range-l460'").first();

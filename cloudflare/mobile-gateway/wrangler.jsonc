@@ -4,7 +4,18 @@
   "compatibility_date": "2026-11-12",
   "workers_dev": false,
   "preview_urls": false,
+  "routes": [
+    { "pattern": "garage-api.naus.studio", "custom_domain": true }
+  ],
   "d1_databases": [
     { "binding": "DB", "database_name": "garage-monitor", "database_id": "d30dd500-c685-4076-88b4-e352f67c7849" }
-  ]
+  ],
+  // Cloudflare Access for SaaS (OIDC) app "Nostos" in team naus-studio. None of these are secrets.
+  // GARAGE_OWNER_SUB is optional: pin it after the owner's first sign-in for a second check.
+  "vars": {
+    "GARAGE_ISSUER": "https://naus-studio.cloudflareaccess.com/cdn-cgi/access/sso/oidc/b96998208e4df9da11aef69b82b65781982957615e95885b5cbea1151ae2931b",
+    "GARAGE_JWKS_URL": "https://naus-studio.cloudflareaccess.com/cdn-cgi/access/sso/oidc/b96998208e4df9da11aef69b82b65781982957615e95885b5cbea1151ae2931b/jwks",
+    "GARAGE_AUDIENCE": "b96998208e4df9da11aef69b82b65781982957615e95885b5cbea1151ae2931b",
+    "GARAGE_OWNER_EMAIL": "esc_corporate@icloud.com"
+  }
 }

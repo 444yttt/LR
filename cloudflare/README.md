@@ -52,14 +52,20 @@ cd cloudflare
 npx wrangler deploy
 ```
 
-The mobile gateway is a separate Worker and is not deployed yet. Deploy it only after `GARAGE_ISSUER`, `GARAGE_JWKS_URL`, `GARAGE_AUDIENCE`, and `GARAGE_OWNER_SUB` are set on that Worker:
+The mobile gateway is a separate Worker, `garage-monitor-mobile-gateway`, deployed 2026-11-15 on the custom domain `https://garage-api.naus.studio` (`workers_dev` and previews off). It accepts only `GET /v1/range-rover` with a Bearer access token from the Cloudflare Access for SaaS (OIDC) app **Nostos** in Zero Trust team `naus-studio`:
+
+- Issuer: `https://naus-studio.cloudflareaccess.com/cdn-cgi/access/sso/oidc/<client_id>`; JWKS: `<issuer>/jwks`; audience: the client id. All are plain vars in `wrangler.jsonc` (not secrets).
+- Public client: PKCE without client secret, scopes `openid email`, redirect `garage-monitor://auth`, refresh tokens 30d, access token 15m. One-time PIN login.
+- Owner restriction is enforced twice: the Access policy allows only the owner email, and the gateway requires the token's `email` claim to equal `GARAGE_OWNER_EMAIL`. `GARAGE_OWNER_SUB` is optional; after the owner's first sign-in it can be added as a third check. The Access app's client secret is unused and must never be copied anywhere.
+
+To redeploy:
 
 ```bash
 cd cloudflare/mobile-gateway
 npx wrangler deploy
 ```
 
-TestFlight reads `EXPO_PUBLIC_GARAGE_API_URL`, `EXPO_PUBLIC_GARAGE_ISSUER`, `EXPO_PUBLIC_GARAGE_CLIENT_ID`, and `EXPO_PUBLIC_GARAGE_RESOURCE` from GitHub repository Variables. Set those variables, then rerun the TestFlight workflow. Empty variables leave the app unconfigured. A build made before the variables exist does not pick them up later.
+TestFlight reads `EXPO_PUBLIC_GARAGE_API_URL` (base URL, `https://garage-api.naus.studio`), `EXPO_PUBLIC_GARAGE_ISSUER`, `EXPO_PUBLIC_GARAGE_CLIENT_ID`, and `EXPO_PUBLIC_GARAGE_RESOURCE` from GitHub repository Variables. `EXPO_PUBLIC_GARAGE_RESOURCE` is intentionally unset for Cloudflare Access. Set those variables, then rerun the TestFlight workflow. Empty variables leave the app unconfigured. A build made before the variables exist does not pick them up later.
 
 ## One-time iPhone/Codespaces secret provisioning
 From the repository root:
