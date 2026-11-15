@@ -4,6 +4,8 @@
   "compatibility_date": "2026-11-12",
   "workers_dev": false,
   "preview_urls": false,
+  // Workers Logs: the gateway logs only auth-failure reasons (claim names, yes/no checks), never tokens or emails.
+  "observability": { "enabled": true },
   "routes": [
     { "pattern": "garage-api.naus.studio", "custom_domain": true }
   ],

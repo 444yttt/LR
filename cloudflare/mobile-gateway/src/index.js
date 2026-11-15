@@ -19,6 +19,67 @@ export function isOwnerEmail(claim, owner) {
   return claim.trim().toLowerCase() === owner.trim().toLowerCase();
 }
 
+/** Shape of an unverified token, for logs: claim names and yes/no checks only, never values. */
+export function describeToken(token, env) {
+  const parts = token.split('.');
+  const out = { parts: parts.length };
+  if (parts.length !== 3) return out;
+  try {
+    const decode = part => JSON.parse(atob(part.replace(/-/g, '+').replace(/_/g, '/')));
+    const header = decode(parts[0]);
+    const payload = decode(parts[1]);
+    const aud = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
+    return {
+      ...out,
+      alg: typeof header.alg === 'string' ? header.alg : null,
+      claims: Object.keys(payload).sort(),
+      issMatches: payload.iss === env.GARAGE_ISSUER,
+      issIsTeamDomain: typeof payload.iss === 'string' && payload.iss === new URL(env.GARAGE_ISSUER).origin,
+      audMatches: aud.includes(env.GARAGE_AUDIENCE),
+      hasEmail: typeof payload.email === 'string',
+    };
+  } catch { return { ...out, decodable: false }; }
+}
+
+/**
+ * Owner check. Fast path: verify the JWT locally against the Access app's issuer/JWKS/audience and
+ * the email claim. Fallback: ask the Access app's own userinfo endpoint, which validates the token
+ * for this client and returns the signed-in identity, then require the owner email there.
+ */
+export async function verifyOwner(token, env) {
+  const diagnostics = {};
+  try {
+    const { payload } = await jwtVerify(token, jwksFor(env.GARAGE_JWKS_URL), {
+      issuer: env.GARAGE_ISSUER,
+      audience: env.GARAGE_AUDIENCE,
+      ...(env.GARAGE_OWNER_SUB ? { subject: env.GARAGE_OWNER_SUB } : {}),
+      algorithms: ['RS256', 'ES256'],
+      requiredClaims: ['exp', 'sub', 'aud', 'iss'],
+    });
+    if (isOwnerEmail(payload.email, env.GARAGE_OWNER_EMAIL)) return { ok: true, via: 'jwt' };
+    diagnostics.jwt = typeof payload.email === 'string' ? 'email_mismatch' : 'email_missing';
+  } catch (error) {
+    diagnostics.jwt = [error?.code ?? 'error', error?.claim].filter(Boolean).join(':');
+    if (error?.code === 'ERR_JWT_EXPIRED') return { ok: false, diagnostics };
+  }
+  diagnostics.token = describeToken(token, env);
+  try {
+    const userinfo = await fetch(env.GARAGE_ISSUER + '/userinfo', {
+      headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' }, redirect: 'manual',
+    });
+    diagnostics.userinfo = userinfo.status;
+    if (userinfo.status === 200) {
+      const identity = await userinfo.json();
+      const emailOk = isOwnerEmail(identity?.email, env.GARAGE_OWNER_EMAIL);
+      const subOk = !env.GARAGE_OWNER_SUB || identity?.sub === env.GARAGE_OWNER_SUB;
+      if (emailOk && subOk) return { ok: true, via: 'userinfo' };
+      diagnostics.userinfoEmail = typeof identity?.email === 'string' ? (emailOk ? 'match' : 'mismatch') : 'missing';
+      diagnostics.userinfoSub = subOk;
+    }
+  } catch { diagnostics.userinfo = 'fetch_error'; }
+  return { ok: false, diagnostics };
+}
+
 export function snapshotStatus(snapshot, run, now) {
   if (run?.status === 'error') {
     if (/^(?:token_http_\d+_(?:invalid_grant|invalid_token|invalid_client)|api_http_401)(?:[:_]|$)/.test(run.error_code ?? '')) {
@@ -42,16 +103,11 @@ export default {
     }
     const token = request.headers.get('Authorization')?.match(/^Bearer ([^\s]+)$/i)?.[1];
     if (!token) return response({ error: 'unauthorized' }, 401);
-    try {
-      const { payload } = await jwtVerify(token, jwksFor(env.GARAGE_JWKS_URL), {
-        issuer: env.GARAGE_ISSUER,
-        audience: env.GARAGE_AUDIENCE,
-        ...(env.GARAGE_OWNER_SUB ? { subject: env.GARAGE_OWNER_SUB } : {}),
-        algorithms: ['RS256', 'ES256'],
-        requiredClaims: ['exp', 'sub', 'aud', 'iss', 'email'],
-      });
-      if (!isOwnerEmail(payload.email, env.GARAGE_OWNER_EMAIL)) throw new Error('not owner');
-    } catch { return response({ error: 'unauthorized' }, 401); }
+    const auth = await verifyOwner(token, env);
+    if (!auth.ok) {
+      console.log(JSON.stringify({ event: 'auth_denied', ...auth.diagnostics }));
+      return response({ error: 'unauthorized' }, 401);
+    }
     try {
       const vehicle = await env.DB.prepare("SELECT enabled FROM vehicles WHERE id='range-l460'").first();
       if (vehicle?.enabled !== 1) return response({ error: 'unavailable' }, 503);

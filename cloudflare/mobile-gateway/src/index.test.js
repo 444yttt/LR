@@ -57,3 +57,31 @@ test('rejects unauthorized, expired and other-owner access before querying D1', 
   delete env.GARAGE_OWNER_EMAIL;
   assert.equal((await send(await sign('first-login-sub', epoch + 60))).status, 503);
 });
+
+test('falls back to the Access userinfo endpoint for tokens it cannot verify locally', async t => {
+  const issuer = 'https://team.example/cdn-cgi/access/sso/oidc/client';
+  const seen = [];
+  let identity = { sub: 'abc', email: 'owner@example.com' };
+  t.mock.method(globalThis, 'fetch', async url => {
+    seen.push(String(url));
+    if (String(url) === issuer + '/userinfo') return identity ? Response.json(identity) : new Response('', { status: 401 });
+    return Response.json({ keys: [] });
+  });
+  const DB = { prepare: sql => ({ first: async () => sql.includes('FROM vehicles') ? { enabled: 1 } : null, all: async () => ({ results: [] }) }) };
+  const env = { DB, GARAGE_ISSUER: issuer, GARAGE_JWKS_URL: issuer + '/jwks', GARAGE_AUDIENCE: 'client', GARAGE_OWNER_EMAIL: 'owner@example.com' };
+  const send = () => worker.fetch(new Request('https://garage.example/v1/range-rover', { headers: { Authorization: 'Bearer opaque-token' } }), env);
+  const logs = t.mock.method(console, 'log', () => {});
+  assert.equal((await send()).status, 200);
+  assert.ok(seen.includes(issuer + '/userinfo'));
+  identity = { sub: 'abc', email: 'someone@example.com' };
+  assert.equal((await send()).status, 401);
+  identity = null;
+  assert.equal((await send()).status, 401);
+  env.GARAGE_OWNER_SUB = 'other';
+  identity = { sub: 'abc', email: 'owner@example.com' };
+  assert.equal((await send()).status, 401);
+  for (const call of logs.mock.calls) {
+    const line = call.arguments.join(' ');
+    assert.ok(!line.includes('opaque-token') && !line.includes('@example.com'), 'logs carry no token or email');
+  }
+});
