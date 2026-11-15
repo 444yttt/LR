@@ -19,6 +19,16 @@ on:
     paths:
       - .github/workflows/ios-testflight.yml
       - mobile/**
+  pull_request:
+    branches:
+      - garage-monitor/ios-ad-hoc
+    paths:
+      - .github/workflows/ios-testflight.yml
+      - mobile/**
+
+concurrency:
+  group: nostos-ios-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -163,7 +173,7 @@ jobs:
         working-directory: mobile/ios
 
       - name: Build for iOS Simulator
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' || github.event_name == 'pull_request'
         working-directory: mobile/ios
         run: |
           set -euo pipefail
