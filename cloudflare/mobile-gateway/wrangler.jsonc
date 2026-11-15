@@ -18,6 +18,8 @@
     "GARAGE_ISSUER": "https://naus-studio.cloudflareaccess.com/cdn-cgi/access/sso/oidc/b96998208e4df9da11aef69b82b65781982957615e95885b5cbea1151ae2931b",
     "GARAGE_JWKS_URL": "https://naus-studio.cloudflareaccess.com/cdn-cgi/access/sso/oidc/b96998208e4df9da11aef69b82b65781982957615e95885b5cbea1151ae2931b/jwks",
     "GARAGE_AUDIENCE": "b96998208e4df9da11aef69b82b65781982957615e95885b5cbea1151ae2931b",
-    "GARAGE_OWNER_EMAIL": "esc_corporate@icloud.com"
+    "GARAGE_OWNER_EMAIL": "esc_corporate@icloud.com",
+    // Owner decision 2026-11-15: show journey end times before the Remote-app cross-check.
+    "GARAGE_TRUST_UNVERIFIED_DRIVES": "true"
   }
 }

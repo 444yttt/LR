@@ -116,12 +116,17 @@ export default {
         env.DB.prepare("SELECT status,error_code FROM ingestion_runs WHERE vehicle_id='range-l460' AND status IN ('complete','error') ORDER BY finished_at DESC LIMIT 1").first(),
         env.DB.prepare("SELECT ended_at FROM vehicle_trip_ends WHERE vehicle_id='range-l460' ORDER BY ended_at DESC LIMIT 50").all(),
       ]);
-      const verified = snapshot?.last_drive_verified === 1;
+      // GARAGE_TRUST_UNVERIFIED_DRIVES=true: the owner chose (2026-11-15) to see journey end times
+      // before the one-time Remote-app cross-check. lastDriveTrust tells clients which rule applied.
+      const ownerVerified = snapshot?.last_drive_verified === 1;
+      const trustUnverified = env.GARAGE_TRUST_UNVERIFIED_DRIVES === 'true';
+      const verified = ownerVerified || (trustUnverified && Boolean(snapshot?.last_drive_at));
       return response({
         status: snapshotStatus(snapshot, run, Date.now()),
         fetchedAt: snapshot?.fetched_at ?? null,
         lastDriveAt: verified ? snapshot.last_drive_at : null,
         lastDriveVerified: verified,
+        lastDriveTrust: ownerVerified ? 'verified' : verified ? 'owner-approved-unverified' : 'withheld',
         rangeKm: snapshot?.range_km ?? null,
         fuelPercent: snapshot?.fuel_percent ?? null,
         health: snapshot?.health_status ?? null,
