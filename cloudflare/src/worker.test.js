@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-  buildApiErrorCode, correlationId, describeShape, dpopClaims, probeRecord, safeSchemaKey, dpopNonce, jlrResourceHeaders, normaliseVin,
+  buildApiErrorCode, correlationId, describeShape, distanceKm, normaliseJlr, numFrom, dpopClaims, probeRecord, safeSchemaKey, dpopNonce, jlrResourceHeaders, normaliseVin,
   safeContentType, sanitizeIngestionCode, scopeNames, shouldRetryDpop, wwwAuthenticateError,
 } from './worker.js';
 
@@ -151,4 +151,33 @@ test('schema probe caps size and records error type for failed calls without val
   const ok = probeRecord('status', { ok: true, data: { vehicle: { range: 412 } } });
   assert.equal(ok.outcome, 'ok');
   assert.equal(JSON.stringify(ok).includes('412'), false);
+});
+
+test('JLR status mapping reads the real VSS-style string fields', () => {
+  const status = { timestamp: '2026-11-15T08:00:00Z', Vehicle: {
+    TraveledDistance: '12345',
+    LowVoltageBattery: { CurrentVoltage: '12.6' },
+    Powertrain: { FuelSystem: { Range: '512000', RelativeLevel: '63' } },
+  } };
+  const s = normaliseJlr(status, null, null);
+  assert.equal(s.rangeKm, 512);
+  assert.equal(s.fuelPercent, 63);
+  assert.equal(s.odometerKm, 12345);
+  assert.equal(s.battery12v, 12.6);
+  assert.equal(s.health, 'unknown');
+  assert.equal(normaliseJlr({ Vehicle: { Powertrain: { FuelSystem: { Range: '480', RelativeLevel: 'n/a' } } } }, null, null).rangeKm, 480);
+  assert.equal(normaliseJlr({ Vehicle: { Powertrain: { FuelSystem: { RelativeLevel: '' } } } }, null, null).fuelPercent, null);
+  assert.equal(normaliseJlr({ Vehicle: { Powertrain: { FuelSystem: { RelativeLevel: '140' } } } }, null, null).fuelPercent, null);
+  assert.equal(numFrom('63 %'), 63);
+  assert.equal(numFrom('512 km'), 512);
+  assert.equal(numFrom('512000 m'), 512);
+  assert.equal(numFrom('abc'), null);
+  assert.equal(distanceKm('-5', 2000), null);
+  assert.equal(distanceKm('9999999999', 2000), null);
+});
+
+test('schema probe classifies string formats without recording them', () => {
+  const { paths } = describeShape({ a: '63', b: '12.6 V', c: 'true', d: '2026-11-15T08:00:00Z', e: 'LOCKED', f: '' });
+  assert.deepEqual(paths, ['$.a:string(numeric)', '$.b:string(numeric+unit)', '$.c:string(bool)',
+    '$.d:string(datetime)', '$.e:string', '$.f:string(empty)', '$:object']);
 });

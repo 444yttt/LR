@@ -192,22 +192,44 @@ async function getJson(url,token,key,endpoint){
   }
 }
 // Conservative signal mapping: missing/unsupported fields stay null, never inferred.
+// JLR status values arrive as strings (e.g. "63"), sometimes possibly with a unit suffix.
+export function numFrom(v){
+  if(typeof v==='number')return Number.isFinite(v)?v:null;
+  if(v&&typeof v==='object'&&'value' in v)return numFrom(v.value);
+  if(typeof v!=='string')return null;
+  const m=/^\s*(-?\d+(?:\.\d+)?)\s*(%|km|m|v)?\s*$/i.exec(v);
+  if(!m)return null;
+  const n=Number(m[1]);
+  if(!Number.isFinite(n))return null;
+  return m[2]&&m[2].toLowerCase()==='m'?n/1000:n;
+}
 function valNum(v,min,max){
-  const n=(typeof v==='number')?v:(typeof v?.value==='number'?v.value:null);
-  return Number.isFinite(n)&&n>=min&&n<=max?n:null;
+  const n=numFrom(v);
+  return n!==null&&n>=min&&n<=max?n:null;
+}
+// Distances: COVESA VSS (which JLR's paths follow) reports FuelSystem.Range in metres; accept km too.
+// Values above the plausible km ceiling are treated as metres.
+export function distanceKm(v,maxKm){
+  const n=numFrom(v);
+  if(n===null||n<0)return null;
+  const km=n>maxKm?n/1000:n;
+  return km<=maxKm?Math.round(km*10)/10:null;
 }
 function iso(v){
   if(typeof v!=='string')return null;
   const n=Date.parse(v);
   return Number.isFinite(n)?new Date(n).toISOString():null;
 }
-function normaliseJlr(status,diagnostics,ev){
+export function normaliseJlr(status,diagnostics,ev){
   const vehicle=status?.Vehicle||status?.vehicle||{};
   const power=vehicle?.Powertrain||vehicle?.powertrain||{};
   const fuel=power?.FuelSystem||power?.fuelSystem||{};
   const traction=ev?.Vehicle?.Powertrain?.TractionBattery || ev?.vehicle?.powertrain?.tractionBattery||{};
-  const rangeKm=valNum(vehicle?.Range ?? vehicle?.range ?? status?.range,0,2000);
+  const rangeKm=distanceKm(fuel?.Range ?? vehicle?.Range ?? vehicle?.range ?? status?.range,2000);
   const fuelPercent=valNum(fuel?.RelativeLevel ?? fuel?.Level ?? status?.fuelPercent,0,100);
+  const odometerKm=distanceKm(vehicle?.TraveledDistance,2000000);
+  const lowVoltage=vehicle?.LowVoltageBattery||{};
+  const battery12v=valNum(lowVoltage?.CurrentVoltage,0,20);
   const electricRangeKm=valNum(traction?.Range ?? ev?.electricRange,0,2000);
   const soc=valNum(traction?.StateOfCharge?.Current ?? ev?.stateOfCharge,0,100);
   const health=['good','attention-required','service-required'].includes(diagnostics?.overallHealth)?diagnostics.overallHealth:'unknown';
@@ -216,7 +238,7 @@ function normaliseJlr(status,diagnostics,ev){
   const maintenance=Array.isArray(diagnostics?.maintenanceIndicators)?diagnostics.maintenanceIndicators:null;
   const maintenanceDue=maintenance?maintenance.filter(x=>x?.status==='due-soon'||x?.status==='overdue').length:null;
   return {
-    rangeKm,electricRangeKm,fuelPercent,soc,health,faultsCount:activeDtc,maintenanceDue,
+    rangeKm,electricRangeKm,fuelPercent,soc,health,faultsCount:activeDtc,maintenanceDue,odometerKm,battery12v,
     statusUpdatedAt:iso(status?.timestamp||status?.lastUpdated),
     healthUpdatedAt:iso(diagnostics?.lastUpdated)
   };
@@ -235,7 +257,19 @@ export function safeSchemaKey(key){
   if(!/^[A-Za-z_][A-Za-z0-9_-]*$/.test(key))return '<other-key>';
   return key;
 }
-function schemaType(v){return v===null?'null':Array.isArray(v)?'array':typeof v;}
+function schemaType(v){
+  if(v===null)return 'null';
+  if(Array.isArray(v))return 'array';
+  if(typeof v==='string'){
+    if(/^\s*-?\d+(?:\.\d+)?\s*$/.test(v))return 'string(numeric)';
+    if(/^\s*-?\d+(?:\.\d+)?\s*[A-Za-z%]{1,4}\s*$/.test(v))return 'string(numeric+unit)';
+    if(/^(true|false)$/i.test(v))return 'string(bool)';
+    if(/^\d{4}-\d{2}-\d{2}T/.test(v))return 'string(datetime)';
+    if(v==='')return 'string(empty)';
+    return 'string';
+  }
+  return typeof v;
+}
 export function describeShape(value){
   const types=new Map();
   let truncated=false;
@@ -360,9 +394,11 @@ async function collect(env){
     last_drive_verified=excluded.last_drive_verified,data_status='fresh',error_code=NULL,updated_at=excluded.updated_at`)
       .bind('range-l460',now(),end,verified,now());
     const telemetry=env.DB.prepare(`UPDATE snapshots SET range_km=?,electric_range_km=?,fuel_percent=?,soc_percent=?,
+      odometer_km=?,battery_12v_voltage=?,
       health_status=?,faults_count=?,maintenance_due_count=?,status_updated_at=?,health_updated_at=?,payload_json=?
       WHERE vehicle_id='range-l460'`).bind(
-      signals.rangeKm,signals.electricRangeKm,signals.fuelPercent,signals.soc,signals.health,signals.faultsCount,
+      signals.rangeKm,signals.electricRangeKm,signals.fuelPercent,signals.soc,signals.odometerKm,signals.battery12v,
+      signals.health,signals.faultsCount,
       signals.maintenanceDue,signals.statusUpdatedAt,signals.healthUpdatedAt,
       JSON.stringify({status_available:!!status,diagnostics_available:!!diagnostics,ev_available:!!ev})
     );
