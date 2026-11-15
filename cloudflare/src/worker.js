@@ -133,6 +133,7 @@ async function collect(env){
     // Important: persist rotated refresh token before fetching vehicle data.
     if(token.refresh_token)await putRefresh(env,vault,token.refresh_token);
     const fingerprints=new Set();
+    const tripEnds=new Set();
     for(let p=0;p<100;p++){
       const url=ORIGIN+'/v1/vehicles/'+encodeURIComponent(env.JLR_VIN)+'/journeys?page='+p+'&size=20';
       const data=await getJson(url,token.access_token,priv);
@@ -142,7 +143,13 @@ async function collect(env){
       if(items.length&&fingerprints.has(fp))throw new Error('repeated_page');
       if(items.length)fingerprints.add(fp);
       pages++;n+=items.length;
-      for(const item of items){const t=parseEnd(item);if(t!==null&&(latest===null||t>latest))latest=t;}
+      for(const item of items){
+        const t=parseEnd(item);
+        if(t!==null){
+          tripEnds.add(t);
+          if(latest===null||t>latest)latest=t;
+        }
+      }
       const totalPages=Number.isInteger(data?.page?.totalPages)?data.page.totalPages: null;
       if(!items.length||data?.page?.last===true||(totalPages!==null&&p+1>=totalPages)||(items.length<20&&totalPages===null)){complete=true;break;}
     }
@@ -164,18 +171,26 @@ async function collect(env){
       throw new Error('journey_timestamp_regression');
     // One-time owner confirmation of the OEM adapter remains valid as new journeys arrive.
     const verified=previous?.last_drive_verified===1?1:0;
-    await env.DB.prepare(`INSERT INTO snapshots(vehicle_id,fetched_at,source,last_drive_at,last_drive_verified,data_status,payload_json,updated_at)
+    // Only persist trip end times. Update the recent window only after a complete read.
+    const recentEnds=[...tripEnds].sort((a,b)=>b-a).slice(0,50).map(t=>new Date(t).toISOString());
+    const history=env.DB.prepare(`INSERT OR REPLACE INTO vehicle_trip_ends(vehicle_id,ended_at)
+      VALUES ${recentEnds.map(()=>"('range-l460',?)").join(',')}`).bind(...recentEnds);
+    const prune=env.DB.prepare(`DELETE FROM vehicle_trip_ends WHERE vehicle_id='range-l460'
+      AND ended_at NOT IN (SELECT ended_at FROM vehicle_trip_ends
+      WHERE vehicle_id='range-l460' ORDER BY ended_at DESC LIMIT 50)`);
+    const snapshot=env.DB.prepare(`INSERT INTO snapshots(vehicle_id,fetched_at,source,last_drive_at,last_drive_verified,data_status,payload_json,updated_at)
     VALUES(? ,?,'jlr',?,?,'fresh','{}',?)
     ON CONFLICT(vehicle_id) DO UPDATE SET fetched_at=excluded.fetched_at,source=excluded.source,last_drive_at=excluded.last_drive_at,
     last_drive_verified=excluded.last_drive_verified,data_status='fresh',error_code=NULL,updated_at=excluded.updated_at`)
-      .bind('range-l460',now(),end,verified,now()).run();
-    await env.DB.prepare(`UPDATE snapshots SET range_km=?,electric_range_km=?,fuel_percent=?,soc_percent=?,
+      .bind('range-l460',now(),end,verified,now());
+    const telemetry=env.DB.prepare(`UPDATE snapshots SET range_km=?,electric_range_km=?,fuel_percent=?,soc_percent=?,
       health_status=?,faults_count=?,maintenance_due_count=?,status_updated_at=?,health_updated_at=?,payload_json=?
       WHERE vehicle_id='range-l460'`).bind(
       signals.rangeKm,signals.electricRangeKm,signals.fuelPercent,signals.soc,signals.health,signals.faultsCount,
       signals.maintenanceDue,signals.statusUpdatedAt,signals.healthUpdatedAt,
       JSON.stringify({status_available:!!status,diagnostics_available:!!diagnostics,ev_available:!!ev})
-    ).run();
+    );
+    await env.DB.batch([history,prune,snapshot,telemetry]);
     await env.DB.prepare("UPDATE ingestion_runs SET status='complete',finished_at=?,page_count=?,journey_count=? WHERE id=?").bind(now(),pages,n,id).run();
     // Alerts are recorded only once after initial operator validation of source semantics.
     // Actual push delivery requires an explicit notifier integration; no silent claim of delivery.
