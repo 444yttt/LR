@@ -1,9 +1,12 @@
 # Vehicle images — sources, licenses, and edits
 
-All three side profiles are photographs from Wikimedia Commons, used under the license stated on each file page
-(checked through the Commons API on 2026-11-14; the SHA-1 of each downloaded original matched the API).
-The modified files keep the same license. They are credited in the app under **＋ (Add vehicle) → Image credits**,
-which links to each source page (`src/credits.ts`).
+The Range Rover and BMW X7 side profiles are **owner-supplied**. The app owner provided them, along with their source and licence
+(listed in `ownerSuppliedImages` in `src/credits.ts`). They are not credited in the app.
+
+The Ferrari 296 is a photograph from Wikimedia Commons, used under the license stated on its file page
+(checked through the Commons API on 2026-11-14; the SHA-1 of the downloaded original matched the API).
+The modified file keeps the same license. It is credited in the app under **＋ (Add vehicle) → Image credits**,
+which links to the source page (`src/credits.ts`).
 
 The pipeline scripts are in `pipeline/` (see its README). Every image also went through a final **edge pass** (`pipeline/edges.py`). Anti-aliased fringe pixels with alpha < 160 take the colour of the nearest opaque car pixels, and alpha 160–254 blends toward it. Background colour therefore cannot survive in the fringe.
 
@@ -13,24 +16,26 @@ reflection is baked in. The app draws the floor ellipse and contact shadow as se
 
 | File | Vehicle / colour | Size (px) |
 |---|---|---|
-| `range-rover-l460.png` | Land Rover Range Rover (L460, LWB), Santorini Black, dark trim and wheels | 1760 × 675 |
+| `range-rover-l460.png` | Range Rover (L460), black, dark wheels (owner-supplied) | 1570 × 618 |
 | `ferrari-296.png` | Ferrari 296, recoloured white (target: **Bianco Avus**) | 1779 × 542 |
-| `bmw-x7.png` | BMW X7 (G07 LCI), black, dark wheels | 1759 × 649 |
+| `bmw-x7.png` | BMW X7 (G07), black, dark wheels (owner-supplied) | 1629 × 641 |
 
 ## range-rover-l460.png
 
-- **Source:** https://commons.wikimedia.org/wiki/File:Land_Rover_Range_Rover_P530_Autobiography_LWB_L460_Santorini_Black_(10).jpg
-- **Original:** https://upload.wikimedia.org/wikipedia/commons/c/cc/Land_Rover_Range_Rover_P530_Autobiography_LWB_L460_Santorini_Black_%2810%29.jpg (3918 × 2939, SHA-1 `b2cf9be39b743277335b4bd127a68e2ba3c488de`)
-- **Author:** Damian B Oh (own work)
-- **License:** CC BY-SA 4.0 — https://creativecommons.org/licenses/by-sa/4.0/. This modified image is shared under CC BY-SA 4.0 as well.
-- **Edits:**
-  - Background removed with BiRefNet (general) segmentation. Edge pixels were colour-decontaminated (closed-form unmix against the propagated background), with no light halo.
-  - Floor, ground shadow, and cables below the sill line removed. Tyres kept as solid hulls.
-  - Rotated −0.14° so both tyre contact points sit on one line, then mirrored horizontally so the car faces left like the other assets.
-  - Side glass given a privacy tint (highlights compressed, 40 % desaturated). This hides the showroom, trees, and window stickers seen through the glass.
-  - Satin-silver side vent blade and its script darkened to gloss black; machined alloy wheel faces darkened to dark gunmetal; raised tyre-sidewall lettering softened, so the mirrored text is unreadable.
-  - Cropped to the alpha bounding box and resampled (premultiplied, area filter) ×0.584.
-  - The paint was already black (Santorini Black), so no body recolouring was needed.
+- **Source:** owner-supplied. The app owner provided the image, its source, and its licence. File: `range-rover-black-owner.png`, 1672 × 941 RGBA, transparent background, facing left.
+- **Edits** (`pipeline/owner.py`, then `pipeline/edges.py`):
+  - Removed the near-transparent haze (alpha 1–15) spread across the canvas, including a faint ground shadow. Only the car's own blob and a 2 px anti-aliased ring are kept.
+  - Body alpha snapped from 249–254 to 255, so the floor no longer shows through the paint.
+  - Trimmed the ground haze under the tyres and cropped to the alpha bounding box (no padding). Both tyres already touched the same row, so no levelling was needed. Not mirrored, not resampled.
+  - Edge pass: the fringe was already dark (no white halo). It now takes the car's own colour.
+
+## bmw-x7.png
+
+- **Source:** owner-supplied. The app owner provided the image, its source, and its licence. File: `bmw-x7-black-owner.png`, 1672 × 941 RGBA, transparent background, facing left.
+- **Edits** (`pipeline/owner.py`, then `pipeline/edges.py`):
+  - The same haze removal, body-alpha snap, ground trim, and tight crop as the Range Rover. Already level; not mirrored, not resampled.
+  - The cut-out had see-through openings between the spokes of both wheels (1 270 px), where the floor would show through. These were made opaque and inpainted from the surrounding wheel, so the tyres stay solid hulls. The gap between the roof rail and the roof is a real opening and stays transparent.
+  - Edge pass as above. No white halo was found.
 
 ## ferrari-296.png
 
@@ -43,20 +48,6 @@ reflection is baked in. The app draws the floor ellipse and contact shadow as se
   - **Recoloured red → white.** No suitably licensed side photo of a white 296 was found. In linear light the red paint's diffuse shading (R − min(G, B)) was scaled ×1.5 and mapped onto a neutral, very slightly warm white (sRGB ≈ `#FFFEF9`). The specular / reflection component (min(G, B)) was kept, so reflections and highlights stay photographic. The Scuderia shield badge, yellow calipers, lights, glass, tyres, wheels, and carbon trim were left untouched.
   - Target white: **Bianco Avus**, Ferrari's standard solid white. The owner wrote 「ビアンコバードゲージ」, which does not match a Ferrari paint name we could identify. **Needs owner confirmation.** If it should be Bianco Cervino, Bianco Italia (tri-coat), or another white, the recolour target is the `white` constant in `pipeline/build.py`.
   - Rotated −0.33° to level the contact points. Cropped and resampled ×0.411. Not mirrored (already facing left).
-
-## bmw-x7.png
-
-- **Source:** https://commons.wikimedia.org/wiki/File:Moscow,_BMW_SUV,_Moskovsky-117_dredger,_May_2026_02.jpg
-- **Original:** https://upload.wikimedia.org/wikipedia/commons/6/6f/Moscow%2C_BMW_SUV%2C_Moskovsky-117_dredger%2C_May_2026_02.jpg (5190 × 3306, SHA-1 `ecd14ec63d0d303a3292f63fc54a4927ef1e2216`)
-- **Author:** Retired electrician (own work)
-- **License:** CC0 1.0 (public domain dedication) — http://creativecommons.org/publicdomain/zero/1.0/. No attribution is required; it is credited anyway.
-- **Vehicle check:** the file is titled "BMW SUV". The car is a BMW X7 G07 LCI (2022+): split headlights, large kidney grille, three side windows, and an X7 roofline.
-- **Edits:**
-  - Background removed (BiRefNet) and edges decontaminated as above. Floor and ground shadow removed; 104 px of enclosed mask holes filled.
-  - Blue cast of the dark paint reduced by 75 %, giving neutral black. The M badge was left untouched.
-  - Green foliage seen through the top of the windscreen desaturated, so it reads as glass.
-  - Alloy wheel faces darkened to dark gunmetal / black. Centre roundels kept.
-  - Rotated +0.74° to level the contact points. Cropped and resampled ×0.390. Not mirrored (already facing left).
 
 ## Verification
 

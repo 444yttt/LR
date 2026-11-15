@@ -2,7 +2,7 @@
 # Pixels with alpha < 160 take the colour of the nearest opaque car pixels (normalised-convolution propagation);
 # 160..254 blend linearly toward it. Background colour therefore cannot survive in the anti-aliased fringe.
 # With "x7": also neutralise the green foliage seen through the top of the windscreen.
-import numpy as np, cv2
+import sys, numpy as np, cv2
 from PIL import Image
 src, dst = sys.argv[1:3]
 im = np.asarray(Image.open(src).convert('RGBA')).astype(np.float32) / 255.
