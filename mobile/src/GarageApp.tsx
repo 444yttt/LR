@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { View } from 'react-native';
+import { StatusBar, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { DriveScreen, DrivesScreen } from './screens/DrivesScreen';
@@ -28,6 +28,8 @@ export function GarageApp({ data, children }: { data: Data; children?: ReactNode
   const [adding, setAdding] = useState(false);
   return <GestureHandlerRootView style={{ flex: 1, backgroundColor: page }}>
     <SafeAreaProvider>
+      {/* Every screen, the sheet and its 18% scrim sit on the light #F8F8F7 canvas: dark status bar content throughout. */}
+      <StatusBar barStyle="dark-content" />
       <NowProvider>
         <DataProvider value={data}>
           <View style={{ flex: 1, backgroundColor: page }}>

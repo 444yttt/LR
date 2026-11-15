@@ -1,9 +1,9 @@
-import { Text, View } from 'react-native';
+import { View } from 'react-native';
 import { VEHICLES, displayLongDay, displayTime, drivesView, formatDistance, formatDuration, formatEfficiency, relativeTime } from '../garageModel.ts';
 import { PressScale, Reveal, Skeleton } from '../ui/motion';
 import { Card, Field, Headline, Note, Rule, SectionLabel, SubScreen, useFeed } from '../ui/parts';
 import { useNav } from '../ui/stack';
-import { ink, medium, mute, regular, rule, semibold, typeStyle, useNow, usePx, white } from '../ui/theme';
+import { Label, ink, medium, mute, regular, rule, semibold, typeStyle, useNow, usePx, white } from '../ui/theme';
 
 const notReported = 'Not reported by the vehicle source';
 
@@ -38,10 +38,10 @@ export function DrivesScreen({ vehicle }: { vehicle: number }) {
                 onPress={() => nav.push({ name: 'drive', vehicle, endedAt: drive.endedAt })}
                 style={{ paddingHorizontal: px(14), paddingVertical: px(15), backgroundColor: white, flexDirection: 'row', alignItems: 'center' }}>
                 <View style={{ flex: 1 }}>
-                  <Text style={typeStyle(px, 15, semibold, ink)}>{displayTime(drive.endedAt)}</Text>
-                  <Text style={typeStyle(px, 12, regular, mute, { marginTop: px(4) })}>{'Trip ended' + (detail ? ' · ' + detail : '')}</Text>
+                  <Label style={typeStyle(px, 15, semibold, ink)}>{displayTime(drive.endedAt)}</Label>
+                  <Label style={typeStyle(px, 12, regular, mute, { marginTop: px(4) })}>{'Trip ended' + (detail ? ' · ' + detail : '')}</Label>
                 </View>
-                <Text style={typeStyle(px, 23, regular, mute)}>›</Text>
+                <Label style={typeStyle(px, 23, regular, mute)}>›</Label>
               </PressScale>
             </View>;
           })}
@@ -83,9 +83,9 @@ export function DriveScreen({ vehicle, endedAt }: { vehicle: number; endedAt: st
         <Cell px={px} label="Efficiency" value={efficiency} />
       </View>
     </Card>
-    {!(duration && distance && efficiency) && <Text style={typeStyle(px, 12, regular, mute, { marginTop: px(12), marginHorizontal: px(8) })}>
+    {!(duration && distance && efficiency) && <Label style={typeStyle(px, 12, regular, mute, { marginTop: px(12), marginHorizontal: px(8) })}>
       — {notReported}. The gateway currently reports the verified trip end time only.
-    </Text>}
+    </Label>}
     <Card px={px}>
       <Field px={px} label="Source" value={feed?.demo ? 'Demo data · not from the vehicle' : info.sourceShort + ' journeys · read-only'} caption="End time verified by the Nostos collector" />
       {drive.startedAt && <>
@@ -99,8 +99,8 @@ export function DriveScreen({ vehicle, endedAt }: { vehicle: number; endedAt: st
 
 function Cell({ px, label, value, caption }: { px: (v: number) => number; label: string; value: string | null; caption?: string | null }) {
   return <View style={{ flex: 1, paddingHorizontal: px(14), paddingTop: px(20), paddingBottom: px(18) }}>
-    <Text style={typeStyle(px, 10, medium, mute)}>{label.toUpperCase()}</Text>
-    <Text style={typeStyle(px, 20, semibold, ink, { marginTop: px(10) })}>{value ?? '—'}</Text>
-    {!!caption && <Text style={typeStyle(px, 12, regular, mute, { marginTop: px(4) })}>{caption}</Text>}
+    <Label style={typeStyle(px, 10, medium, mute)}>{label.toUpperCase()}</Label>
+    <Label style={typeStyle(px, 20, semibold, ink, { marginTop: px(10) })}>{value ?? '—'}</Label>
+    {!!caption && <Label style={typeStyle(px, 12, regular, mute, { marginTop: px(4) })}>{caption}</Label>}
   </View>;
 }

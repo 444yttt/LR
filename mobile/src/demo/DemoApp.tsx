@@ -1,12 +1,11 @@
 // DEMO / PREVIEW ENTRY POINT. Loaded only when EXPO_PUBLIC_DEMO_DATA=1 (see App.tsx).
 // Shows all three vehicles with synthetic fixtures; a pill at the bottom of the screen marks the mode and cycles states.
 import { useMemo, useState } from 'react';
-import { Text } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GarageApp } from '../GarageApp';
 import type { Data } from '../ui/parts';
 import { PressScale } from '../ui/motion';
-import { ink, medium, typeStyle, usePx, white } from '../ui/theme';
+import { Label, ink, medium, typeStyle, usePx, white } from '../ui/theme';
 import { DEMO_SCENARIOS, demoFeeds, demoScenarioLabel, type DemoScenario } from './fixtures';
 
 const noop = async () => undefined;
@@ -39,6 +38,6 @@ function Badge({ label, onPress }: { label: string; onPress: () => void }) {
   return <PressScale accessibilityRole="button" accessibilityLabel={label} accessibilityHint="Switches to the next demo state" onPress={onPress}
     style={{ position: 'absolute', alignSelf: 'center', bottom: Math.max(insets.bottom, px(12)) + px(4), paddingHorizontal: px(12), paddingVertical: px(7),
       borderRadius: px(14), backgroundColor: ink }}>
-    <Text style={typeStyle(px, 10, medium, white)}>{label}</Text>
+    <Label style={typeStyle(px, 10, medium, white)}>{label}</Label>
   </PressScale>;
 }

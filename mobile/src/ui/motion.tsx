@@ -1,12 +1,12 @@
 import { useEffect, useRef, type ReactNode } from 'react';
-import { Platform, Pressable, Text, TextInput, View, type PressableProps, type StyleProp, type TextStyle, type ViewStyle } from 'react-native';
+import { Platform, Pressable, TextInput, useWindowDimensions, View, type PressableProps, type StyleProp, type TextStyle, type ViewStyle } from 'react-native';
 import Animated, {
   Easing, cancelAnimation, interpolate, interpolateColor, useAnimatedProps, useAnimatedStyle, useReducedMotion,
   useSharedValue, withDelay, withRepeat, withSpring, withTiming, type SharedValue,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
-import { ink, rule, skeleton, white } from './theme';
+import { Label, ink, rule, skeleton, useFontCap, white } from './theme';
 
 /** One motion vocabulary for the app. Durations are short; springs are critically damped or close to it. */
 export const ease = {
@@ -131,6 +131,8 @@ const AnimatedTextInput = Animated.createAnimatedComponent(TextInput);
  */
 export function CountUp({ value, suffix, empty, style, decimals = 0 }: { value: number | null; suffix: string; empty: string; style: TextStyle; decimals?: number }) {
   const { reduced } = useMotion();
+  const { fontScale } = useWindowDimensions();
+  const cap = useFontCap();
   const shown = useSharedValue(0);
   const previous = useRef<number | null>(null);
   useEffect(() => {
@@ -145,9 +147,10 @@ export function CountUp({ value, suffix, empty, style, decimals = 0 }: { value: 
   }, [value, reduced]);
   const final = value === null ? empty : value.toFixed(decimals) + suffix;
   const props = useAnimatedProps(() => ({ text: shown.value.toFixed(decimals) + suffix }) as never);
-  if (value === null || Platform.OS === 'web' || reduced) return <Text style={style}>{final}</Text>;
-  const height = style.lineHeight;
-  return <AnimatedTextInput editable={false} pointerEvents="none" underlineColorAndroid="transparent" scrollEnabled={false}
+  if (value === null || Platform.OS === 'web' || reduced) return <Label style={style}>{final}</Label>;
+  // Same Dynamic Type cap as the Label it replaces; the box grows with the scaled line so digits never clip.
+  const height = style.lineHeight === undefined ? undefined : style.lineHeight * Math.min(fontScale, cap);
+  return <AnimatedTextInput editable={false} maxFontSizeMultiplier={cap} pointerEvents="none" underlineColorAndroid="transparent" scrollEnabled={false}
     accessibilityLabel={final} defaultValue={final} animatedProps={props}
     style={[style, { padding: 0, margin: 0, height, minWidth: 0 }]} />;
 }

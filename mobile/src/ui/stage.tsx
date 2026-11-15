@@ -63,13 +63,14 @@ export function CardStage({ px, index, handoff }: { px: Px; index: number; hando
 }
 
 /**
- * Where a Garage card's stage sits, in Garage content coordinates (unscrolled), plus the Garage's live scroll offset.
+ * Where a Garage card's stage sits, in Garage content coordinates (unscrolled, including the safe-area `top` shift of
+ * the Garage canvas), plus the Garage's live scroll offset.
  * The hero reads `scroll` on the UI thread, so a return flight lands where the card is now, not where it was at tap time.
  */
 export type Origin = { x: number; y: number; scroll: SharedValue<number> };
 
-export function cardStageOrigin(px: Px, index: number, garageScroll: SharedValue<number>): Origin {
-  return { x: px(16) + px(cardStageOffset.x), y: px(cardY[index]) + px(cardStageOffset.y), scroll: garageScroll };
+export function cardStageOrigin(px: Px, index: number, garageScroll: SharedValue<number>, top = 0): Origin {
+  return { x: px(16) + px(cardStageOffset.x), y: top + px(cardY[index]) + px(cardStageOffset.y), scroll: garageScroll };
 }
 
 // Native Yoga rounds layout to the device pixel grid; react-native-web keeps fractional CSS layout.
@@ -92,10 +93,12 @@ function fitted(frame: Box, aspect: number) {
  * Center-based transform that places a detail-stage layer (`dest`, stage space) over the matching card layer
  * (`source`, card-stage space) when both screens are unscrolled. Scroll offsets are added live in the worklets.
  * `aspect` = uniform scale for a contain-fitted image; otherwise the SVG layer stretches on each axis.
+ * `top` is the detail canvas's safe-area shift. The origin carries the Garage canvas's shift; both screens take it from
+ * the same useSafeFrame, so at progress 0 / 1 the layers sit exactly on the card / resting stage on every device.
  */
-export function handoff(px: Px, origin: { x: number; y: number }, source: Box, dest: Box, aspect?: number) {
+export function handoff(px: Px, origin: { x: number; y: number }, source: Box, dest: Box, aspect?: number, top = 0) {
   const from = drawnRect(origin.x + px(source.x), origin.y + px(source.y), px(source.w), px(source.h));
-  const to = drawnRect(px(stageBox[1].x) + px(dest.x), px(stageBox[1].y) + px(dest.y), px(dest.w), px(dest.h));
+  const to = drawnRect(px(stageBox[1].x) + px(dest.x), top + px(stageBox[1].y) + px(dest.y), px(dest.w), px(dest.h));
   const tx = from.x + from.w / 2 - (to.x + to.w / 2);
   const ty = from.y + from.h / 2 - (to.y + to.h / 2);
   if (aspect !== undefined) {
@@ -128,13 +131,15 @@ const rest = [{ translateX: 0 }, { translateY: 0 }, { scaleX: 1 }, { scaleY: 1 }
  *   `handoffWindow` (see useCardHandoff), so nothing waits for React and no frame shows both or neither.
  * `scrollOffset` is the live detail scroll position; it only matters while progress < 1 (i.e. while flying back).
  */
-export function HeroStage({ px, index, origin, progress, scrollOffset, onReady }: {
+export function HeroStage({ px, index, origin, progress, scrollOffset, onReady, top = 0 }: {
   px: Px; index: number; origin: Origin | null; progress: SharedValue<number>; scrollOffset: SharedValue<number>; onReady?: () => void;
+  /** Safe-area shift of the detail canvas this stage is placed in. */
+  top?: number;
 }) {
   const floor = floors[1], shadow = shadows[1][index], profile = profiles[1][index];
-  const car = origin ? handoff(px, origin, profiles[0][index], profile, carAspect[index]) : null;
-  const ground = origin ? handoff(px, origin, floors[0], floor) : null;
-  const contact = origin ? handoff(px, origin, shadows[0][index], shadow) : null;
+  const car = origin ? handoff(px, origin, profiles[0][index], profile, carAspect[index], top) : null;
+  const ground = origin ? handoff(px, origin, floors[0], floor, undefined, top) : null;
+  const contact = origin ? handoff(px, origin, shadows[0][index], shadow, undefined, top) : null;
   const garageScroll = origin?.scroll;
   const arc = px(4.8);
   // Without an origin (deep link), rise into place instead of flying from a card.

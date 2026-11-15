@@ -1,12 +1,14 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { interpolate, makeMutable, useAnimatedStyle, useSharedValue, withSpring, withTiming, type SharedValue } from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { scheduleOnRN } from 'react-native-worklets';
 import type { Route } from '../garageModel.ts';
 import { ease, haptics, springs, useMotion } from './motion';
 import type { Origin } from './stage';
-import { page } from './theme';
+import { FontCapProvider, page, usePx } from './theme';
+import { fontScaleCap } from './safeArea';
 
 export type Entry = {
   key: string;
@@ -136,6 +138,7 @@ function Layer({ entry, next, top, width, children, onBackStart, onCancelBack, r
   onBackStart?: () => void; onCancelBack?: () => void; remove?: (key: string) => void;
 }) {
   const { reduced } = useMotion();
+  const insets = useSafeAreaInsets();
   const own = entry?.progress;
   const above = next?.progress;
   const heroAbove = next?.hero ?? false;
@@ -197,6 +200,9 @@ function Layer({ entry, next, top, width, children, onBackStart, onCancelBack, r
   const body = <Animated.View pointerEvents={top ? 'auto' : 'none'} style={[StyleSheet.absoluteFill, style]}>
     <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: page }, canvas]} />
     {children}
+    {/* Status-bar backdrop: content scrolled up stops at the status bar / Dynamic Island instead of running under the
+        clock. Canvas colour, so at rest it is invisible; it moves and fades with its own screen. */}
+    <Animated.View testID="status-backdrop" pointerEvents="none" style={[{ position: 'absolute', left: 0, right: 0, top: 0, height: insets.top, backgroundColor: page }, canvas]} />
     <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: '#000' }, scrim]} />
   </Animated.View>;
   return backGesture ? <GestureDetector gesture={backGesture}>{body}</GestureDetector> : body;
@@ -209,9 +215,16 @@ function Layer({ entry, next, top, width, children, onBackStart, onCancelBack, r
 export function Sheet({ visible, onClose, children }: { visible: boolean; onClose: () => void; children: ReactNode }) {
   const { reduced } = useMotion();
   const { height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const px = usePx();
   const [mounted, setMounted] = useState(visible);
   const shown = useSharedValue(0);
   const drag = useSharedValue(0);
+  // Never taller than the screen below the status bar / Dynamic Island; scrolls only if its content needs more
+  // (large Dynamic Type), so the drag-to-dismiss pan keeps working at normal sizes.
+  const maxHeight = height - insets.top - px(12);
+  const panelHeight = useSharedValue(height * 0.7);
+  const [overflow, setOverflow] = useState(false);
 
   useEffect(() => {
     if (visible) {
@@ -235,14 +248,26 @@ export function Sheet({ visible, onClose, children }: { visible: boolean; onClos
     }), [onClose]);
 
   const scrim = useAnimatedStyle(() => ({ opacity: shown.value * 0.18 * (1 - Math.min(1, drag.value / 400)) }));
-  const panel = useAnimatedStyle(() => ({ transform: [{ translateY: (1 - shown.value) * height * 0.7 + drag.value }] }));
+  // Off-screen distance: 70% of the window as before, or the whole panel if it is taller than that.
+  const panel = useAnimatedStyle(() => ({ transform: [{ translateY: (1 - shown.value) * Math.max(height * 0.7, panelHeight.value + 24) + drag.value }] }));
   if (!mounted) return null;
   return <View style={StyleSheet.absoluteFill} pointerEvents={visible ? 'auto' : 'none'}>
     <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: '#000' }, scrim]}>
       <Pressable accessibilityRole="button" accessibilityLabel="Close" style={StyleSheet.absoluteFill} onPress={onClose} />
     </Animated.View>
     <GestureDetector gesture={pan}>
-      <Animated.View accessibilityViewIsModal style={[{ position: 'absolute', left: 0, right: 0, bottom: 0 }, panel]}>{children}</Animated.View>
+      <Animated.View testID="sheet-panel" accessibilityViewIsModal onLayout={event => { panelHeight.value = event.nativeEvent.layout.height; }}
+        style={[{ position: 'absolute', left: 0, right: 0, bottom: 0, maxHeight, backgroundColor: page,
+          borderTopLeftRadius: px(19), borderTopRightRadius: px(19), overflow: 'hidden' }, panel]}>
+        <FontCapProvider value={fontScaleCap.flow}>
+          <ScrollView scrollEnabled={overflow} bounces={false} showsVerticalScrollIndicator={overflow}
+            contentInsetAdjustmentBehavior="never" automaticallyAdjustsScrollIndicatorInsets={false}
+            scrollIndicatorInsets={{ bottom: insets.bottom }}
+            onContentSizeChange={(_, contentHeight) => setOverflow(contentHeight > maxHeight + 1)}>
+            {children}
+          </ScrollView>
+        </FontCapProvider>
+      </Animated.View>
     </GestureDetector>
   </View>;
 }
