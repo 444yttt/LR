@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { VEHICLES } from '../src/garageModel.ts';
 import {
   SPECS_VERSION, cardName, cardNameWidth, displayName, emptySpecs, isEmptySpecs, modelLine, normalizeSpecs, parseSpecs,
-  serializeSpecs, specsFor, textWidth, titleSize, withSpecs, type VehicleSpecs,
+  serializeSpecs, specLimits, specsFor, textWidth, titleLayout, titleWidth, headerLimit, withSpecs, type VehicleSpecs,
 } from '../src/vehicleSpecs.ts';
 
 const fake: VehicleSpecs = { grade: 'Test Trim', engine: 'V6', year: '2020', options: ['Test Audio', 'Test Wheels'] };
@@ -45,7 +45,7 @@ test('serialize → parse round-trips, keyed by vehicle id (not position), versi
 test('normalise: trims, collapses whitespace and newlines, caps lengths and option count', () => {
   const specs = normalizeSpecs({ grade: '  Test \n Trim  ', engine: 'V6'.repeat(40), year: ' 2020 ', options: Array.from({ length: 40 }, (_, i) => ' Test Audio ' + i) });
   assert.equal(specs.grade, 'Test Trim');
-  assert.equal(specs.engine.length, 40);
+  assert.equal(specs.engine.length, specLimits.engine);
   assert.equal(specs.year, '2020');
   assert.equal(specs.options.length, 30);
   assert.equal(specs.options[0], 'Test Audio 0');
@@ -85,16 +85,28 @@ test('Garage card name: composed when it fits beside the chevron, otherwise the 
     assert.equal(cardName(vehicle, emptySpecs), vehicle.name);
     assert.equal(cardName(vehicle, fake), vehicle.name + ' Test Trim V6');
     assert.ok(textWidth(cardName(vehicle, fake), 20 * 1.15) <= cardNameWidth);
-    const long = { ...fake, grade: 'Test Trim With A Very Long Name', engine: 'V6 Test Hybrid' };
+    const long = { ...fake, grade: 'Test Trim With Long Name', engine: 'V6 Test Hybrid' };
     assert.equal(cardName(vehicle, long), vehicle.name);
   }
 });
 
-test('detail title size: 31pt when the name fits, stepping down for long names, never below 22pt', () => {
-  assert.equal(titleSize(VEHICLES[0].name), 31);
-  assert.equal(titleSize(displayName(VEHICLES[0].name, { ...emptySpecs, engine: 'V6' })), 31);
-  const longer = titleSize(displayName(VEHICLES[0].name, fake));
-  assert.ok(longer < 31 && longer >= 22);
-  assert.ok(textWidth(displayName(VEHICLES[0].name, fake), longer) <= 346);
-  assert.equal(titleSize('W'.repeat(80)), 22);
+test('detail header: 31pt for names that fit; long names step down, then wrap to two lines, always above the hero stage', () => {
+  const base = VEHICLES[0].name;
+  assert.deepEqual(titleLayout(base), { size: 31, lines: 1, top: 105, modelTop: 145, statusTop: 170 });
+  assert.equal(titleLayout(displayName(base, { ...emptySpecs, engine: 'V6' })).size, 31);
+  const medium = titleLayout(displayName(base, fake));
+  assert.ok(medium.lines === 1 && medium.size < 31 && medium.size >= 22);
+  assert.ok(textWidth(displayName(base, fake), medium.size) <= titleWidth);
+  // The longest names the form allows, in wide letters, at the Dynamic Type canvas cap.
+  const longest = { ...emptySpecs, grade: 'W'.repeat(specLimits.grade), engine: 'M'.repeat(specLimits.engine) };
+  for (const vehicle of VEHICLES) {
+    for (const scale of [1, 1.15, 2]) {
+      const layout = titleLayout(displayName(vehicle.name, longest), scale);
+      assert.equal(layout.lines, 2);
+      assert.ok(layout.size >= 17 && layout.size <= 22);
+      assert.ok(layout.modelTop >= 145 && layout.statusTop >= layout.modelTop + 25);
+      // Status line (10pt) ends above the hero stage even at the cap.
+      assert.ok(layout.statusTop + 10 * 1.21 * 1.15 <= headerLimit, String(layout.statusTop));
+    }
+  }
 });

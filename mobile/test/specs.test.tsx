@@ -74,11 +74,12 @@ test('detail with specs: composed name, year on the model line, options list; th
 });
 
 test('a composed name too long for the card keeps the base name on the card; the detail shows it in full', async () => {
-  await seed({ 'bmw-x7': { ...fake, grade: 'Test Trim With A Very Long Name', options: [] } });
+  await seed({ 'bmw-x7': { ...fake, grade: 'Test Trim With Long Name', options: [] } });
   await mount([{ name: 'vehicle', vehicle: 2 }]);
   expect(screen.getByTestId('card-name-bmw-x7').props.children).toBe('BMW X7');
-  expect(screen.getByTestId('vehicle-title').props.children).toBe('BMW X7 Test Trim With A Very Long Name V6');
-  expect(screen.getByTestId('vehicle-title').props.numberOfLines).toBe(1);
+  expect(screen.getByTestId('vehicle-title').props.children).toBe('BMW X7 Test Trim With Long Name V6');
+  // Too long for one line even at 22pt: two lines, model line moved down below them.
+  expect(screen.getByTestId('vehicle-title').props.numberOfLines).toBe(2);
   expect(screen.queryByTestId('vehicle-options')).toBeNull();
 });
 

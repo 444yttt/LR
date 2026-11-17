@@ -1,4 +1,4 @@
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { GestureDetector } from 'react-native-gesture-handler';
 import Animated, { useAnimatedScrollHandler } from 'react-native-reanimated';
 import { VEHICLES, connectionState, healthView, lastUpdateLine, metrics, offersUpdateNow } from '../garageModel.ts';
@@ -7,7 +7,7 @@ import { ActionRow, NavBar, useFeed } from '../ui/parts';
 import { useSafeFrame } from '../ui/safe';
 import { vehicleLayout, vehicleRows } from '../ui/safeArea';
 import { useSpecs } from '../ui/specs';
-import { displayName, modelLine, titleSize, titleWidth } from '../vehicleSpecs.ts';
+import { displayName, modelLine, titleLayout, titleWidth } from '../vehicleSpecs.ts';
 import { useNav, useSwipeDismiss, type Entry } from '../ui/stack';
 import { LiveStatusLine, UpdateNowButton, UpdatingPulse } from '../ui/live';
 import { HeroStage } from '../ui/stage';
@@ -51,7 +51,7 @@ export function VehicleScreen({ entry, vehicle }: { entry: Entry; vehicle: numbe
   // Owner-entered specs (on-device only): composed title, model year on the model line, options card when present.
   const specs = useSpecs(vehicle);
   const name = displayName(info.name, specs);
-  const size = titleSize(name);
+  const title = titleLayout(name, useWindowDimensions().fontScale);
   const frame = vehicleLayout(specs.options.length);
   const dismiss = useSwipeDismiss(entry);
 
@@ -61,12 +61,12 @@ export function VehicleScreen({ entry, vehicle }: { entry: Entry; vehicle: numbe
     {/* The Figma canvas, shifted below the status bar / Dynamic Island by the same amount as the Garage canvas. */}
     <View testID="vehicle-canvas" style={{ position: 'absolute', left: 0, right: 0, top: safe.top, height: px(frame.height) }} pointerEvents="box-none">
       <Animated.View style={[place(px, 0, 0, 390, 200), header]} pointerEvents="box-none">
-        {/* One line; a long composed name steps down in size with its baseline kept where the 31pt title's sits. */}
-        <Label testID="vehicle-title" accessibilityRole="header" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}
-          style={typeStyle(px, size, semibold, ink, place(px, 22, 105 + (31 - size) * 1984 / 2048, titleWidth))}>{name}</Label>
-        <At px={px} value={modelLine(info.model, specs)} x={23} y={145} size={12} color={mute} width={340} />
+        {/* A long composed name steps down in size, then wraps to two lines; the lines below move with it (titleLayout). */}
+        <Label testID="vehicle-title" accessibilityRole="header" numberOfLines={title.lines} adjustsFontSizeToFit minimumFontScale={0.75}
+          style={typeStyle(px, title.size, semibold, ink, place(px, 22, title.top, titleWidth))}>{name}</Label>
+        <At px={px} value={modelLine(info.model, specs)} x={23} y={title.modelTop} size={12} color={mute} width={340} />
         <Pressable accessibilityRole="button" accessibilityLabel={'Connection: ' + status} accessibilityHint="Opens connection settings"
-          hitSlop={10} onPress={() => nav.push({ name: 'connection', vehicle })} style={place(px, 23, 170)}>
+          hitSlop={10} onPress={() => nav.push({ name: 'connection', vehicle })} style={place(px, 23, title.statusTop)}>
           <Label style={typeStyle(px, 10, medium, mute)}>{status.toUpperCase()}</Label>
         </Pressable>
       </Animated.View>

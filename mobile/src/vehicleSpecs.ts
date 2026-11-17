@@ -18,7 +18,8 @@ export type SpecsMap = Partial<Record<VehicleId, VehicleSpecs>>;
 export const SPECS_STORAGE_KEY = 'nostos.vehicleSpecs';
 export const SPECS_VERSION = 1;
 
-export const specLimits = { grade: 40, engine: 40, year: 12, option: 60, options: 30 } as const;
+/** Field caps. Grade + engine are kept short enough that the composed detail title fits two lines (see titleLayout). */
+export const specLimits = { grade: 30, engine: 24, year: 12, option: 60, options: 30 } as const;
 
 export const emptySpecs: VehicleSpecs = Object.freeze({ grade: '', engine: '', year: '', options: Object.freeze([]) as unknown as string[] });
 
@@ -142,12 +143,25 @@ export function cardName(info: Pick<VehicleInfo, 'name'>, specs: VehicleSpecs, f
 }
 
 /**
- * Detail title size: 31pt as designed while the name fits the 346pt line (x 22 to the right page inset); longer names
- * step down to as small as 22pt. Anything still longer is shrunk further by the Label (adjustsFontSizeToFit).
+ * Detail header layout (design pt). The Figma header: 31pt title at y 105, model line at y 145, status at y 170, hero
+ * stage from y 208. A composed name that does not fit the 346pt line at 31pt steps down (to 22pt) on one line with
+ * its baseline unchanged; longer names wrap to two lines (17–22pt) starting at y 101, and the model and status lines
+ * move down below them, still above the hero stage. `fontScale` is the Dynamic Type scale (capped at the canvas cap).
  */
 export const titleWidth = 346;
-export function titleSize(name: string, designSize = 31, minSize = 22): number {
-  const width = textWidth(name, designSize);
-  if (width <= titleWidth) return designSize;
-  return Math.max(minSize, Math.floor(designSize * titleWidth / width));
+export const headerLimit = 208;
+export type TitleLayout = { size: number; lines: 1 | 2; top: number; modelTop: number; statusTop: number };
+const ascent = 1984 / 2048;
+const lineRatio = (1984 + 494) / 2048;
+export function titleLayout(name: string, fontScale = 1, cap = 1.15): TitleLayout {
+  const scale = Math.min(cap, Math.max(1, fontScale));
+  const em = textWidth(name, 1) * scale;
+  const one = em > 0 ? Math.floor(titleWidth / em) : 31;
+  if (one >= 31) return { size: 31, lines: 1, top: 105, modelTop: 145, statusTop: 170 };
+  if (one >= 22) return { size: one, lines: 1, top: 105 + (31 - one) * ascent * scale, modelTop: 145, statusTop: 170 };
+  // Two lines; 0.9 leaves room for words that wrap early.
+  const size = Math.min(22, Math.max(17, Math.floor(2 * titleWidth * 0.9 / em)));
+  const top = 101;
+  const modelTop = Math.max(145, top + 2 * size * lineRatio * scale + 5);
+  return { size, lines: 2, top, modelTop, statusTop: modelTop + 25 };
 }
