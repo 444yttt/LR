@@ -52,7 +52,7 @@ cd cloudflare
 npx wrangler deploy
 ```
 
-The mobile gateway is a separate Worker, `garage-monitor-mobile-gateway`, deployed 2026-11-15 on the custom domain `https://garage-api.naus.studio` (`workers_dev` and previews off). It accepts only `GET /v1/range-rover` with a Bearer access token from the Cloudflare Access for SaaS (OIDC) app **Nostos** in Zero Trust team `naus-studio`:
+The mobile gateway is a separate Worker, `garage-monitor-mobile-gateway`, deployed 2026-11-15 on the custom domain `https://garage-api.naus.studio` (`workers_dev` and previews off). It accepts `GET /v1/range-rover`, `POST /v1/range-rover/refresh` (below) and `GET /v1/vehicles` (below), each with a Bearer access token from the Cloudflare Access for SaaS (OIDC) app **Nostos** in Zero Trust team `naus-studio`:
 
 - Issuer: `https://naus-studio.cloudflareaccess.com/cdn-cgi/access/sso/oidc/<client_id>`; JWKS: `<issuer>/jwks`; audience: the client id. All are plain vars in `wrangler.jsonc` (not secrets).
 - Public client: PKCE without client secret, scopes `openid email`, redirect `garage-monitor://auth`, refresh tokens 30d, access token 15m. One-time PIN login.
@@ -104,6 +104,17 @@ On every collection the Worker stores the **structure only** of the JLR `status`
 npx wrangler d1 execute garage-monitor --remote --command \
   "SELECT endpoint,observed_at,outcome,http_status,error_code,path_count,truncated,paths_json FROM jlr_schema_probes;"
 ```
+
+## Multi-vehicle read: `GET /v1/vehicles` (2026-11-17)
+
+Same owner-only auth as `/v1/range-rover`. Returns `{ vehicles, generatedAt }`, in Garage order:
+
+- `range-l460` — the Range Rover from D1, mapped exactly like `/v1/range-rover` (status, fetchedAt, lastDrive*, rangeKm, fuelPercent, health, trips);
+- `bmw-x7`, `audi-s-etron-gt` — the synthetic local rows from `cloudflare/src/local-vehicles.js` (PR #19, see `LOCAL_DATA.md`), imported by the gateway (no second fixture table), combined through `combineVehicleRows`, and mapped through the same function.
+
+Each entry also carries `id`, `make`, `model`, `modelYear`, `displayName`, `source` (`jlr` | `local`), `connection` (`connected` | `disconnected`), `electricRangeKm` and `socPercent`. The route is read-only: SELECTs only, the local ids are never queried in or written to D1, and it never calls `COLLECTOR.refresh()`. There is no refresh route for the local ids; the app re-reads `GET /v1/vehicles` when "Update now" is tapped on them. `GARAGE_TRUST_UNVERIFIED_DRIVES` applies to every row the same way; the local rows keep `last_drive_verified = 0`, and the app's inactivity alerts only ever look at the Range Rover. `/v1/range-rover` and its refresh are unchanged.
+
+To make it reachable from the app, redeploy the gateway (`cd cloudflare/mobile-gateway && npx wrangler deploy`); bindings and vars are unchanged. Until then the app falls back to `/v1/range-rover` and shows the X7 / S e-tron GT as not updated yet.
 
 ## On-demand refresh (2026-11-15)
 
