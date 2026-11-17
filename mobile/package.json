@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@expo-google-fonts/inter": "^0.4.2",
+    "@react-native-async-storage/async-storage": "2.2.0",
     "expo": "~54.0.38",
     "expo-auth-session": "~7.0.10",
     "expo-crypto": "~15.0.8",
@@ -42,7 +43,8 @@
       "<rootDir>/test/**/*.test.tsx"
     ],
     "setupFiles": [
-      "./node_modules/react-native-gesture-handler/jestSetup.js"
+      "./node_modules/react-native-gesture-handler/jestSetup.js",
+      "./test/jestSetup.js"
     ]
   }
 }

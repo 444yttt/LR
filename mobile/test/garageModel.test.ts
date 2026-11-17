@@ -99,28 +99,36 @@ test('health is unknown unless a fresh report says otherwise; vehicles without a
   assert.equal(healthView(0, report({ health: 'service-required' }), now).title, 'Service required');
   assert.match(healthView(0, report({ health: 'service-required' }), now).detail, /Land Rover retailer/);
   assert.match(healthView(0, report({ health: 'good', fetchedAt: ago(40 * 3600_000) }), now).detail, /too old/);
-  assert.equal(healthView(1, null, now).title, 'Not connected');
-  assert.equal(healthView(2, null, now).title, 'Setup required');
-  assert.equal(healthView(2, report({ health: 'attention-required' }), now).caption, 'Reported by BMW diagnostics');
-  assert.deepEqual(metrics(null, now), { rangeKm: null, fuelPercent: null, lastDrive: null, idleDays: null });
+  assert.equal(healthView(3, null, now).title, 'Not connected');
+  assert.equal(healthView(1, report({ health: 'good' }), now).title, 'No reported issues');
+  assert.equal(healthView(2, report({ health: 'attention-required' }), now).caption, 'Reported by Nostos gateway');
+  assert.deepEqual(metrics(null, now), { rangeKm: null, fuelPercent: null, batteryPercent: null, level: { label: 'Fuel', percent: null }, lastDrive: null, idleDays: null });
   assert.equal(metrics(report({ rangeKm: 500 }), now).rangeKm, 500);
 });
 
 test('connection copy names the vehicle and its own source', () => {
   assert.match(connectionState(input({ phase: 'signedOut', hasSession: false }), now).detail, /Range Rover/);
-  assert.match(connectionState(input({ phase: 'signedOut', hasSession: false }), now, 2).detail, /BMW X7/);
+  assert.match(connectionState(input({ phase: 'signedOut', hasSession: false }), now, 1).detail, /BMW X7/);
+  assert.match(connectionState(input({ phase: 'signedOut', hasSession: false }), now, 2).detail, /Audi S e-tron GT/);
   assert.equal(connectionState(input({ snapshot: fresh({ status: 'error' }) }), now).title, 'JLR update failed');
-  assert.equal(connectionState(input({ snapshot: fresh({ status: 'error' }) }), now, 1).title, 'Ferrari update failed');
+  assert.equal(connectionState(input({ snapshot: fresh({ status: 'error' }) }), now, 3).title, 'Ferrari update failed');
+  // The gateway's other vehicles are read through Nostos, never presented as an OEM feed.
+  for (const i of [1, 2]) assert.match(connectionState(input({ snapshot: fresh() }), now, i).detail, /Nostos gateway data only/);
 });
 
 test('deep links resolve to screens and never treat the OAuth redirect as a screen', () => {
   assert.deepEqual(routeFromUrl('garage-monitor://'), { name: 'garage' });
   assert.deepEqual(routeFromUrl('garage-monitor://vehicle/range-rover'), { name: 'vehicle', vehicle: 0 });
-  assert.deepEqual(routeFromUrl('garage-monitor://vehicle/bmw-x7/connection'), { name: 'connection', vehicle: 2 });
+  assert.deepEqual(routeFromUrl('garage-monitor://vehicle/bmw-x7/connection'), { name: 'connection', vehicle: 1 });
+  assert.deepEqual(routeFromUrl('garage-monitor://vehicle/audi-s-etron-gt'), { name: 'vehicle', vehicle: 2 });
+  assert.deepEqual(routeFromUrl('garage-monitor://vehicle/Audi-S-eTron-GT/drives'), { name: 'drives', vehicle: 2 });
+  assert.equal(routeFromUrl('garage-monitor://vehicle/audi-s-etron'), null);
   assert.equal(routeFromUrl('garage-monitor://vehicle/bmw-m4'), null);
-  assert.deepEqual(routeFromUrl('garage-monitor://vehicle/ferrari-296/drives'), { name: 'drives', vehicle: 1 });
+  assert.deepEqual(routeFromUrl('garage-monitor://vehicle/ferrari-296/drives'), { name: 'drives', vehicle: 3 });
   assert.deepEqual(routeFromUrl('garage-monitor://drives?x=1'), { name: 'drives', vehicle: 0 });
   assert.deepEqual(stackFor({ name: 'drive', vehicle: 2, endedAt: ago(0) }).map(route => route.name), ['vehicle', 'drives', 'drive']);
+  assert.deepEqual(routeFromUrl('garage-monitor://vehicle/ferrari-296/specs'), { name: 'specs', vehicle: 3 });
+  assert.deepEqual(stackFor({ name: 'specs', vehicle: 1 }).map(route => route.name), ['vehicle', 'specs']);
   assert.deepEqual(routeFromUrl('garage-monitor:///notifications'), { name: 'notifications' });
   assert.equal(routeFromUrl('garage-monitor://auth?code=abc'), null);
   assert.equal(routeFromUrl('garage-monitor://vehicle/unknown'), null);

@@ -211,8 +211,9 @@ function ToggleRow({ px, title, caption, value, disabled, onChange }: { px: Px; 
 
 const adapters = [
   { title: 'Land Rover', state: 'Connected · Range Rover', note: 'JLR Data Hub, read-only' },
+  { title: 'BMW', state: 'Connected · BMW X7', note: 'Nostos gateway, read-only' },
+  { title: 'Audi', state: 'Connected · S e-tron GT', note: 'Nostos gateway, read-only' },
   { title: 'Ferrari', state: 'Not available', note: 'No data source in this build' },
-  { title: 'BMW', state: 'Setup required', note: 'CarData access not set up' },
   { title: 'OBD / LTE device', state: 'Not available', note: 'Planned owner-installed adapter' },
 ];
 

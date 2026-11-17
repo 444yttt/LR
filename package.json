@@ -5,7 +5,8 @@
   "description": "JLR Data Hub secure credential bootstrap and vehicle monitoring proof of concept",
   "scripts": {
     "keygen": "node scripts/generate-jlr-credentials.cjs",
-    "verify": "node scripts/verify-certificate.cjs"
+    "verify": "node scripts/verify-certificate.cjs",
+    "test:local-vehicles": "node --test cloudflare/test/local-vehicles.test.js"
   },
   "dependencies": {
     "@peculiar/x509": "^1.14.0"

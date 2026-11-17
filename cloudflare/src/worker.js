@@ -1,4 +1,5 @@
 // Garage Monitor / Cloudflare Worker (read-only vehicle telemetry).
+import { combineVehicleRows } from './local-vehicles.js';
 // No credentials or location data in code, logs, or public responses.
 const PROVIDER='jlr';
 const ORIGIN='https://data.jlr-vcdp.com';
@@ -448,10 +449,10 @@ export default {
     const u=new URL(request.url);
     if(u.pathname==='/api/vehicles'&&request.method==='GET'){
       const result=await env.DB.prepare(`SELECT v.id,v.make,v.model,v.model_year,v.display_name,v.enabled,
-      s.last_drive_at,s.last_drive_verified,s.fetched_at,s.data_status,s.range_km,s.electric_range_km,
+      s.source,s.last_drive_at,s.last_drive_verified,s.fetched_at,s.data_status,s.range_km,s.electric_range_km,
       s.fuel_percent,s.soc_percent,s.battery_12v_voltage,s.health_status,s.faults_count,
       s.odometer_km,s.status_updated_at,s.health_updated_at,s.maintenance_due_count FROM vehicles v LEFT JOIN snapshots s ON s.vehicle_id=v.id ORDER BY v.created_at`).all();
-      return json({vehicles:result.results,generated_at:now()});
+      return json({vehicles:combineVehicleRows(result.results),generated_at:now()});
     }
     if(u.pathname==='/api/capabilities'&&request.method==='GET'){
       const result=await env.DB.prepare('SELECT vehicle_id,field,state,updated_at FROM telemetry_capabilities ORDER BY vehicle_id,field').all();

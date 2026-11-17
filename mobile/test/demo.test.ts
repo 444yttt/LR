@@ -25,16 +25,20 @@ test('demo data is enabled only by EXPO_PUBLIC_DEMO_DATA=1, as a build-time cons
   assert.match(app, /process\.env\.EXPO_PUBLIC_DEMO_DATA === '1'\s*\?\s*require\('\.\/src\/demo\/DemoApp'\)\.DemoApp/);
 });
 
-test('production feeds: only the Range Rover has data; Ferrari 296 and BMW X7 have none', () => {
-  assert.deepEqual(VEHICLES.map(vehicle => vehicle.name), ['Range Rover', 'Ferrari 296', 'BMW X7']);
+test('production feeds: Range Rover, BMW X7 and Audi S e-tron GT read the gateway; Ferrari 296 has none', () => {
+  assert.deepEqual(VEHICLES.map(vehicle => vehicle.name), ['Range Rover', 'BMW X7', 'Audi S e-tron GT', 'Ferrari 296']);
+  assert.deepEqual(VEHICLES.map(vehicle => vehicle.connected), [true, true, true, false]);
   const feeds = vehicleFeeds(live, null);
-  assert.equal(feeds[0], live);
-  assert.equal(feeds[1], null);
-  assert.equal(feeds[2], null);
+  assert.deepEqual(feeds[0], live);
+  // Connected, but nothing received from the gateway yet: no values, never fixtures.
+  for (const i of [1, 2]) {
+    assert.deepEqual(feeds[i], { ...live, snapshot: null });
+    assert.equal(connectionState(feeds[i]!, now, i).kind, 'notFetched');
+  }
+  assert.equal(feeds[3], null);
   // With no feed the screens fall back to the offline copy and blank metrics, whatever fixtures exist.
-  assert.equal(healthView(1, feeds[1], now).title, 'Not connected');
-  assert.equal(healthView(2, feeds[2], now).title, 'Setup required');
-  assert.deepEqual(metrics(feeds[1], now), { rangeKm: null, fuelPercent: null, lastDrive: null, idleDays: null });
+  assert.equal(healthView(3, feeds[3], now).title, 'Not connected');
+  assert.deepEqual(metrics(feeds[3], now), { rangeKm: null, fuelPercent: null, batteryPercent: null, level: { label: 'Fuel', percent: null }, lastDrive: null, idleDays: null });
   assert.ok(feeds.every(feed => !feed?.demo));
 });
 
@@ -42,16 +46,17 @@ test('demo feeds cover every vehicle in every state and are always flagged as de
   const expected = { live: 'fresh', requesting: 'fresh', rateLimited: 'fresh', refreshFailed: 'fresh', loading: 'connecting', notFetched: 'notFetched', updateFailed: 'updateFailed', authExpired: 'authExpired', empty: 'fresh' };
   for (const scenario of DEMO_SCENARIOS) {
     const feeds = vehicleFeeds(live, demoFeeds(scenario, now));
-    assert.equal(feeds.length, 3);
+    assert.equal(feeds.length, VEHICLES.length);
     feeds.forEach((feed, vehicle) => {
       assert.ok(feed?.demo, `${scenario} ${vehicle}`);
       assert.equal(connectionState(feed!, now, vehicle).kind, expected[scenario], `${scenario} ${vehicle}`);
     });
   }
-  assert.equal(drivesView(demoFeed(1, 'live', now), now).kind, 'list');
-  assert.equal(drivesView(demoFeed(2, 'empty', now), now).kind, 'empty');
-  assert.equal(metrics(demoFeed(2, 'live', now), now).rangeKm, 655);
-  assert.equal(metrics(demoFeed(1, 'empty', now), now).rangeKm, null);
+  assert.equal(drivesView(demoFeed(3, 'live', now), now).kind, 'list');
+  assert.equal(drivesView(demoFeed(1, 'empty', now), now).kind, 'empty');
+  assert.equal(metrics(demoFeed(1, 'live', now), now).rangeKm, 655);
+  assert.deepEqual(metrics(demoFeed(2, 'live', now), now).level, { label: 'Battery', percent: 71 });
+  assert.equal(metrics(demoFeed(3, 'empty', now), now).rangeKm, null);
   assert.equal(parseScenario('updateFailed'), 'updateFailed');
   assert.equal(parseScenario('bogus'), 'live');
 });

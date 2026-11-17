@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { SignJWT, generateKeyPair, exportJWK } from 'jose';
-import worker, { snapshotStatus } from './index.js';
+import worker, { VEHICLE_IDS, snapshotStatus } from './index.js';
 
 const now = Date.parse('2026-11-12T00:00:00Z');
 const snapshot = { fetched_at: '2026-11-11T12:00:00Z', data_status: 'fresh' };
@@ -152,4 +152,126 @@ test('POST /refresh: owner only, maps collector results to 200 / 429 / 502', asy
   assert.equal((await post(owner)).status, 502);
   const getAsPost = await worker.fetch(new Request('https://garage.example/v1/range-rover', { method: 'POST' }), env);
   assert.equal(getAsPost.status, 404);
+});
+
+async function ownerSetup(t, kid) {
+  const { publicKey, privateKey } = await generateKeyPair('ES256');
+  const key = await exportJWK(publicKey);
+  key.kid = kid;
+  const issuer = 'https://' + kid + '.example';
+  t.mock.method(globalThis, 'fetch', async () => Response.json({ keys: [key] }));
+  const sign = (email = 'owner@example.com') => new SignJWT({ email }).setProtectedHeader({ alg: 'ES256', kid })
+    .setIssuer(issuer).setSubject('s').setAudience('aud').setExpirationTime(Math.floor(Date.now() / 1000) + 60).sign(privateKey);
+  const env = { GARAGE_ISSUER: issuer, GARAGE_JWKS_URL: issuer + '/jwks', GARAGE_AUDIENCE: 'aud', GARAGE_OWNER_EMAIL: 'owner@example.com' };
+  return { env, sign };
+}
+
+/** D1 stub with a JLR row (synthetic values) that records every statement, so tests can assert reads only. */
+function jlrDb({ enabled = 1, snapshot = { fetched_at: new Date(Date.now() - 3600000).toISOString(), data_status: 'fresh', range_km: 500, fuel_percent: 60, health_status: 'good', last_drive_at: null, last_drive_verified: 0 } } = {}) {
+  const statements = [];
+  return { statements, prepare(sql) {
+    statements.push(sql);
+    return {
+      first: async () => sql.includes('LEFT JOIN snapshots') ? (enabled === null ? null : { id: 'range-l460', make: 'Land Rover', model: 'Range Rover', model_year: null, display_name: 'Range Rover', enabled, ...snapshot })
+        : sql.includes('FROM vehicles') ? { enabled } : sql.includes('FROM snapshots') ? snapshot : null,
+      all: async () => ({ results: [] }),
+      run: async () => { throw new Error('gateway must not write'); },
+    };
+  } };
+}
+
+test('GET /v1/vehicles: owner only; JLR row plus local X7 / S e-tron GT in the camelCase shape, no collector call', async t => {
+  const { env, sign } = await ownerSetup(t, 'list-key');
+  let collector = 0;
+  const DB = jlrDb();
+  Object.assign(env, { DB, COLLECTOR: { refresh: async () => { collector++; return { status: 'complete' }; } }, GARAGE_TRUST_UNVERIFIED_DRIVES: 'true' });
+  t.mock.method(console, 'log', () => {});
+  const get = token => worker.fetch(new Request('https://garage.example/v1/vehicles', { headers: token ? { Authorization: 'Bearer ' + token } : {} }), env);
+  assert.equal((await get(null)).status, 401);
+  assert.equal((await get(await sign('someone@example.com'))).status, 401);
+  assert.equal(DB.statements.length, 0);
+  const res = await get(await sign());
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('Cache-Control'), 'no-store');
+  const body = await res.json();
+  assert.ok(Number.isFinite(Date.parse(body.generatedAt)));
+  assert.deepEqual(body.vehicles.map(v => v.id), ['range-l460', 'bmw-x7', 'audi-s-etron-gt']);
+  assert.deepEqual(VEHICLE_IDS, ['range-l460', 'bmw-x7', 'audi-s-etron-gt']);
+  const [rover, x7, etron] = body.vehicles;
+  const keys = ['id', 'make', 'model', 'modelYear', 'displayName', 'source', 'connection', 'status', 'fetchedAt', 'lastDriveAt',
+    'lastDriveVerified', 'lastDriveTrust', 'rangeKm', 'fuelPercent', 'health', 'trips', 'electricRangeKm', 'socPercent'];
+  for (const vehicle of body.vehicles) assert.deepEqual(Object.keys(vehicle), keys, vehicle.id);
+  assert.equal(rover.source, 'jlr');
+  assert.equal(rover.status, 'fresh');
+  assert.equal(rover.rangeKm, 500);
+  // #19's synthetic fixture values, mapped field for field.
+  assert.deepEqual({ ...x7, fetchedAt: null, lastDriveAt: null, trips: null }, {
+    id: 'bmw-x7', make: 'BMW', model: 'X7', modelYear: 2026, displayName: 'BMW X7', source: 'local', connection: 'connected',
+    status: 'fresh', fetchedAt: null, lastDriveAt: null, lastDriveVerified: true, lastDriveTrust: 'owner-approved-unverified',
+    rangeKm: 645, fuelPercent: 73, health: 'good', trips: null, electricRangeKm: null, socPercent: null,
+  });
+  assert.deepEqual({ ...etron, fetchedAt: null, lastDriveAt: null, trips: null }, {
+    id: 'audi-s-etron-gt', make: 'Audi', model: 'S e-tron GT', modelYear: 2026, displayName: 'Audi S e-tron GT', source: 'local', connection: 'connected',
+    status: 'fresh', fetchedAt: null, lastDriveAt: null, lastDriveVerified: true, lastDriveTrust: 'owner-approved-unverified',
+    rangeKm: 329, fuelPercent: null, health: 'good', trips: null, electricRangeKm: 329, socPercent: 68,
+  });
+  for (const vehicle of [x7, etron]) assert.deepEqual(vehicle.trips, [vehicle.lastDriveAt]);
+  assert.ok(Date.now() - Date.parse(etron.fetchedAt) < 36 * 3600000);
+  // Read-only: SELECTs only, never a collector refresh, never a write.
+  assert.equal(collector, 0);
+  assert.ok(DB.statements.every(sql => /^\s*SELECT/i.test(sql)));
+  assert.ok(DB.statements.every(sql => !/bmw-x7|audi-s-etron-gt/.test(sql)), 'local ids are never queried in D1');
+});
+
+test('GET /v1/vehicles: local rows keep last_drive_verified=0 semantics without the trust flag; JLR row disabled or D1 down', async t => {
+  const { env, sign } = await ownerSetup(t, 'list-trust');
+  Object.assign(env, { DB: jlrDb() });
+  const token = await sign();
+  const get = () => worker.fetch(new Request('https://garage.example/v1/vehicles', { headers: { Authorization: 'Bearer ' + token } }), env);
+  let body = await (await get()).json();
+  for (const vehicle of body.vehicles.slice(1)) {
+    assert.equal(vehicle.lastDriveVerified, false);
+    assert.equal(vehicle.lastDriveTrust, 'withheld');
+    assert.equal(vehicle.lastDriveAt, null);
+    assert.equal(vehicle.trips, null);
+  }
+  env.DB = jlrDb({ enabled: 0 });
+  body = await (await get()).json();
+  assert.deepEqual(body.vehicles.map(v => v.id), ['bmw-x7', 'audi-s-etron-gt']);
+  env.DB = { prepare: () => ({ first: async () => { throw new Error('d1 down'); }, all: async () => { throw new Error('d1 down'); } }) };
+  assert.equal((await get()).status, 503);
+});
+
+test('no collector call for local ids: there is no local refresh route, and the JLR refresh is unchanged', async t => {
+  const { env, sign } = await ownerSetup(t, 'local-refresh');
+  let collector = 0;
+  Object.assign(env, { DB: jlrDb(), COLLECTOR: { refresh: async () => { collector++; return { status: 'complete' }; } } });
+  const token = await sign();
+  for (const id of ['bmw-x7', 'audi-s-etron-gt']) {
+    for (const path of ['/v1/vehicles/' + id + '/refresh', '/v1/' + id + '/refresh', '/v1/vehicles/' + id]) {
+      for (const method of ['GET', 'POST']) {
+        const res = await worker.fetch(new Request('https://garage.example' + path, { method, headers: { Authorization: 'Bearer ' + token } }), env);
+        assert.equal(res.status, 404, method + ' ' + path);
+      }
+    }
+  }
+  assert.equal((await worker.fetch(new Request('https://garage.example/v1/vehicles', { method: 'POST', headers: { Authorization: 'Bearer ' + token } }), env)).status, 404);
+  assert.equal(collector, 0);
+  const rover = await worker.fetch(new Request('https://garage.example/v1/range-rover/refresh', { method: 'POST', headers: { Authorization: 'Bearer ' + token } }), env);
+  assert.equal(rover.status, 200);
+  assert.equal(collector, 1);
+  // The Range Rover payload keeps its exact pre-/v1/vehicles keys.
+  assert.deepEqual(Object.keys(await rover.json()), ['status', 'fetchedAt', 'lastDriveAt', 'lastDriveVerified', 'lastDriveTrust', 'rangeKm', 'fuelPercent', 'health', 'trips']);
+});
+
+test('logs from the vehicles route carry no token or email', async t => {
+  const { env, sign } = await ownerSetup(t, 'list-logs');
+  Object.assign(env, { DB: jlrDb() });
+  const logs = t.mock.method(console, 'log', () => {});
+  const bad = await sign('intruder@example.com');
+  await worker.fetch(new Request('https://garage.example/v1/vehicles', { headers: { Authorization: 'Bearer ' + bad } }), env);
+  for (const call of logs.mock.calls) {
+    const line = call.arguments.join(' ');
+    assert.ok(!line.includes(bad) && !line.includes('@example.com'));
+  }
 });

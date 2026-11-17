@@ -1,6 +1,7 @@
 // Pure presentation state for the Garage. No React Native imports so the logic runs under `node --test`.
 import { DAY_MS, idleDays, isFresh, type Drive, type Snapshot } from './telemetry.ts';
 import type { LiveRefresh } from './liveRefresh.ts';
+import type { VehicleSnapshots } from './gatewayVehicles.ts';
 
 export type Phase = 'unconfigured' | 'signedOut' | 'signingIn' | 'loading' | 'ready' | 'failed' | 'expired';
 
@@ -13,7 +14,7 @@ export type GarageInput = {
   lastSyncedAt: number | null;
 };
 
-export type VehicleId = 'range-rover' | 'ferrari-296' | 'bmw-x7';
+export type VehicleId = 'range-rover' | 'bmw-x7' | 'audi-s-etron-gt' | 'ferrari-296';
 
 export type VehicleInfo = {
   id: VehicleId;
@@ -35,8 +36,8 @@ export type VehicleInfo = {
 };
 
 /**
- * Data for one vehicle. In production only the Range Rover has one (the live Nostos gateway); Ferrari and BMW have
- * none and render as not connected / setup required. Demo mode (src/demo) supplies synthetic feeds for all three.
+ * Data for one vehicle. In production the connected vehicles (Range Rover, BMW X7, Audi S e-tron GT) read the Nostos
+ * gateway; the Ferrari has none and renders as not connected. Demo mode (src/demo) supplies synthetic feeds for all.
  */
 export type Feed = GarageInput & {
   demo?: boolean;
@@ -52,26 +53,34 @@ export const VEHICLES: readonly VehicleInfo[] = [
     brand: 'Land Rover', source: 'JLR Data Hub', sourceShort: 'JLR', diagnostics: 'JLR diagnostics', ownerApp: 'the Land Rover Remote app',
   },
   {
+    id: 'bmw-x7', name: 'BMW X7', model: 'BMW', connected: true,
+    offlineStatus: 'Sync unverified', offlineTitle: 'Not checked', offlineCaption: 'Health data not yet verified',
+    adapterNote: 'Read-only through the Nostos gateway.',
+    brand: 'BMW', source: 'Nostos gateway', sourceShort: 'Nostos gateway', diagnostics: 'Nostos gateway', ownerApp: 'the My BMW app',
+  },
+  {
+    id: 'audi-s-etron-gt', name: 'Audi S e-tron GT', model: 'Audi', connected: true,
+    offlineStatus: 'Sync unverified', offlineTitle: 'Not checked', offlineCaption: 'Health data not yet verified',
+    adapterNote: 'Read-only through the Nostos gateway.',
+    brand: 'Audi', source: 'Nostos gateway', sourceShort: 'Nostos gateway', diagnostics: 'Nostos gateway', ownerApp: 'the myAudi app',
+  },
+  {
     id: 'ferrari-296', name: 'Ferrari 296', model: 'Ferrari', connected: false,
     offlineStatus: 'Not connected', offlineTitle: 'Not connected', offlineCaption: 'Vehicle data source not connected',
     adapterNote: 'No Ferrari data source is available in this build. MyFerrari connectivity and an optional owner-installed OBD device are still being investigated.',
     brand: 'Ferrari', source: 'MyFerrari', sourceShort: 'Ferrari', diagnostics: 'Ferrari diagnostics', ownerApp: 'the MyFerrari app',
   },
-  {
-    id: 'bmw-x7', name: 'BMW X7', model: 'BMW', connected: false,
-    offlineStatus: 'Setup required', offlineTitle: 'Setup required', offlineCaption: 'Vehicle data setup is incomplete',
-    adapterNote: 'BMW CarData access has not been set up. Market entitlement and data scopes must be confirmed before this vehicle can connect.',
-    brand: 'BMW', source: 'BMW CarData', sourceShort: 'BMW', diagnostics: 'BMW diagnostics', ownerApp: 'the My BMW app',
-  },
 ];
 
 /**
- * Per-vehicle feeds. Production (`demo` null): the live gateway input for the Range Rover only; every other vehicle has
- * no feed, so it can never show sample values. Demo/test builds pass synthetic feeds for every vehicle.
+ * Per-vehicle feeds. Production (`demo` null): every connected vehicle shares the gateway session state (`live`) with
+ * its own report from `snapshots` (by app id; without a map, `live.snapshot` is the Range Rover's). A vehicle that is
+ * not connected (Ferrari) has no feed, so it can never show sample values. Demo/test builds pass synthetic feeds.
  */
-export function vehicleFeeds(live: GarageInput, demo: readonly Feed[] | null): (Feed | null)[] {
+export function vehicleFeeds(live: GarageInput, demo: readonly Feed[] | null, snapshots?: VehicleSnapshots | null): (Feed | null)[] {
   if (demo) return VEHICLES.map((_, i) => demo[i] ?? null);
-  return VEHICLES.map(vehicle => vehicle.connected ? live : null);
+  const reports: VehicleSnapshots = snapshots ?? { 'range-rover': live.snapshot ?? undefined };
+  return VEHICLES.map(vehicle => vehicle.connected ? { ...live, snapshot: reports[vehicle.id] ?? null } : null);
 }
 
 export type ConnectionKind =
@@ -247,7 +256,7 @@ export const formatEfficiency = (drive: Drive) => drive.efficiencyLPer100Km === 
 
 export type HealthView = { title: string; caption: string; detail: string; reported: boolean };
 
-/** Health for one vehicle. No feed (Ferrari / BMW in production) → the vehicle's offline copy, never sample values. */
+/** Health for one vehicle. No feed (Ferrari in production) → the vehicle's offline copy, never sample values. */
 export function healthView(vehicle: number, feed: GarageInput | null, now: number): HealthView {
   const info = VEHICLES[vehicle];
   if (!feed) return { title: info.offlineTitle, caption: info.offlineCaption, detail: info.adapterNote, reported: false };
@@ -272,15 +281,27 @@ export function healthView(vehicle: number, feed: GarageInput | null, now: numbe
       : 'No health category has been reported for this vehicle. Unknown is not treated as healthy.' };
 }
 
-export type Metrics = { rangeKm: number | null; fuelPercent: number | null; lastDrive: string | null; idleDays: number | null };
+export type Metrics = {
+  rangeKm: number | null;
+  fuelPercent: number | null;
+  /** State of charge of the drive battery (EV / PHEV), when reported. */
+  batteryPercent: number | null;
+  /** The level shown beside range: fuel, or battery for a car that reports a charge level and no fuel level. */
+  level: { label: 'Fuel' | 'Battery'; percent: number | null };
+  lastDrive: string | null;
+  idleDays: number | null;
+};
 
-/** Metric values for one vehicle's feed; no feed or no report → all unknown. */
+/** Metric values for one vehicle's feed; no feed or no report → all unknown. Nothing is derived or estimated. */
 export function metrics(feed: GarageInput | null, now: number): Metrics {
   const snapshot = feed?.snapshot ?? null;
-  if (!snapshot) return { rangeKm: null, fuelPercent: null, lastDrive: null, idleDays: null };
+  if (!snapshot) return { rangeKm: null, fuelPercent: null, batteryPercent: null, level: { label: 'Fuel', percent: null }, lastDrive: null, idleDays: null };
+  const battery = snapshot.fuelPercent === null && snapshot.socPercent !== null;
   return {
-    rangeKm: snapshot.rangeKm,
+    rangeKm: snapshot.rangeKm ?? snapshot.electricRangeKm,
     fuelPercent: snapshot.fuelPercent,
+    batteryPercent: snapshot.socPercent,
+    level: battery ? { label: 'Battery', percent: snapshot.socPercent } : { label: 'Fuel', percent: snapshot.fuelPercent },
     lastDrive: snapshot.lastDriveVerified && snapshot.lastDriveAt ? displayDate(snapshot.lastDriveAt) : null,
     idleDays: idleDays(snapshot, now),
   };
@@ -293,6 +314,7 @@ export type Route =
   | { name: 'drive'; vehicle: number; endedAt: string }
   | { name: 'status'; vehicle: number }
   | { name: 'connection'; vehicle: number }
+  | { name: 'specs'; vehicle: number }
   | { name: 'notifications' };
 
 /** Screens to push above the Garage for a deep link, e.g. drives → [Range Rover, Recent drives]. */
@@ -303,7 +325,8 @@ export function stackFor(route: Route): Route[] {
     case 'drives': return [{ name: 'vehicle', vehicle: route.vehicle }, route];
     case 'drive': return [{ name: 'vehicle', vehicle: route.vehicle }, { name: 'drives', vehicle: route.vehicle }, route];
     case 'status':
-    case 'connection': return [{ name: 'vehicle', vehicle: route.vehicle }, route];
+    case 'connection':
+    case 'specs': return [{ name: 'vehicle', vehicle: route.vehicle }, route];
     case 'notifications': return [{ name: 'vehicle', vehicle: 0 }, { name: 'connection', vehicle: 0 }, route];
   }
 }
@@ -312,7 +335,8 @@ export const scheme = 'garage-monitor';
 
 /**
  * garage-monitor:// deep links. `garage-monitor://auth` is the OAuth redirect and is never a screen.
- * Supported: /, /vehicle/<id>, /vehicle/<id>/status, /vehicle/<id>/connection, /vehicle/<id>/drives, /drives (Range Rover),
+ * Supported: /, /vehicle/<id>, /vehicle/<id>/status, /vehicle/<id>/connection, /vehicle/<id>/drives, /vehicle/<id>/specs,
+ * /drives (Range Rover),
  * /notifications.
  */
 export function routeFromUrl(url: string | null | undefined): Route | null {
@@ -331,6 +355,7 @@ export function routeFromUrl(url: string | null | undefined): Route | null {
     if (parts[2] === 'status') return { name: 'status', vehicle };
     if (parts[2] === 'connection') return { name: 'connection', vehicle };
     if (parts[2] === 'drives') return { name: 'drives', vehicle };
+    if (parts[2] === 'specs') return { name: 'specs', vehicle };
   }
   return null;
 }

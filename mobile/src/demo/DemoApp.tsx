@@ -1,5 +1,5 @@
 // DEMO / PREVIEW ENTRY POINT. Loaded only when EXPO_PUBLIC_DEMO_DATA=1 (see App.tsx).
-// Shows all three vehicles with synthetic fixtures; a pill at the bottom of the screen marks the mode and cycles states.
+// Shows every vehicle with synthetic fixtures; a pill at the bottom of the screen marks the mode and cycles states.
 import { useMemo, useState } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GarageApp } from '../GarageApp';

@@ -45,10 +45,28 @@ export const fontScaleCap = { canvas: 1.15, flow: 1.6 } as const;
 
 /** Canvas frames (design pt): frame height and bottom of the last content block. */
 export const canvases = {
-  garage: { height: 940, contentBottom: 859 },
-  vehicle: { height: 920, contentBottom: 866 },
+  /** Four cards (vehicleGeometry.cardY): the last card ends at 873 + 225; the Figma 81pt tail below it is kept. */
+  garage: { height: 1179, contentBottom: 1098 },
+  /** Vehicle detail without an options list (see vehicleLayout). */
+  vehicle: { height: 997, contentBottom: 943 },
   subScreen: { minHeight: 920, titleTop: 105, back: 45, paddingBottom: 56 },
 } as const;
+
+/**
+ * Lower blocks of the vehicle detail canvas (design pt). Above y 747 the Figma frame is unchanged (header, hero stage
+ * 208–412, metrics, status). Below it: the drives / connection row, the "Vehicle specs" row, an optional options card
+ * (only when the owner entered options; one 26pt line each, room for the canvas Dynamic Type cap), then the footer.
+ * The frame grows with the options card and keeps the original 54pt below the footer's text.
+ */
+export const vehicleRows = { action: 747, specs: 824, rowHeight: 65, gap: 18, optionsTop: 44, optionLine: 26, optionsBottom: 14, footerGap: 26, footerText: 28, tail: 54 } as const;
+export function vehicleLayout(optionCount: number) {
+  const r = vehicleRows;
+  const optionsY = r.specs + r.rowHeight + r.gap;
+  const optionsHeight = optionCount > 0 ? r.optionsTop + optionCount * r.optionLine + r.optionsBottom : 0;
+  const footer = optionCount > 0 ? optionsY + optionsHeight + r.footerGap : r.specs + r.rowHeight + r.footerGap;
+  const contentBottom = footer + r.footerText;
+  return { action: r.action, specs: r.specs, options: optionCount > 0 ? { y: optionsY, height: optionsHeight } : null, footer, contentBottom, height: contentBottom + r.tail };
+}
 
 /**
  * Fixed navigation slots (design pt, before the safe-area top shift). Every pushed screen renders its back button in

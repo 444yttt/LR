@@ -1,11 +1,13 @@
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { GestureDetector } from 'react-native-gesture-handler';
 import Animated, { useAnimatedScrollHandler } from 'react-native-reanimated';
 import { VEHICLES, connectionState, healthView, lastUpdateLine, metrics, offersUpdateNow } from '../garageModel.ts';
 import { CountUp, PressScale, Skeleton, useProgressReveal } from '../ui/motion';
 import { ActionRow, NavBar, useFeed } from '../ui/parts';
 import { useSafeFrame } from '../ui/safe';
-import { canvases } from '../ui/safeArea';
+import { vehicleLayout, vehicleRows } from '../ui/safeArea';
+import { useSpecs } from '../ui/specs';
+import { displayName, modelLine, titleLayout, titleWidth } from '../vehicleSpecs.ts';
 import { useNav, useSwipeDismiss, type Entry } from '../ui/stack';
 import { LiveStatusLine, UpdateNowButton, UpdatingPulse } from '../ui/live';
 import { HeroStage } from '../ui/stage';
@@ -24,7 +26,7 @@ export function VehicleScreen({ entry, vehicle }: { entry: Entry; vehicle: numbe
   const now = useNow();
   const nav = useNav();
   const info = VEHICLES[vehicle];
-  // Only a vehicle with a feed (production: the Range Rover) shows values; the others keep their offline copy.
+  // Only a vehicle with a feed (production: the gateway's vehicles) shows values; the others keep their offline copy.
   const feed = useFeed(vehicle);
   const connection = feed ? connectionState(feed, now, vehicle) : null;
   const loading = connection?.loading ?? false;
@@ -40,11 +42,17 @@ export function VehicleScreen({ entry, vehicle }: { entry: Entry; vehicle: numbe
   const info1 = useProgressReveal(p, 0.4);
   const info2 = useProgressReveal(p, 0.46);
   const info3 = useProgressReveal(p, 0.5);
-  const info4 = useProgressReveal(p, 0.55);
+  const info4 = useProgressReveal(p, 0.53);
+  const info5 = useProgressReveal(p, 0.56);
+  const info6 = useProgressReveal(p, 0.6);
   const back = useProgressReveal(p, 0.36, 0);
   const metric = typeStyle(px, 25, semibold, ink);
   const safe = useSafeFrame();
-  const frame = canvases.vehicle;
+  // Owner-entered specs (on-device only): composed title, model year on the model line, options card when present.
+  const specs = useSpecs(vehicle);
+  const name = displayName(info.name, specs);
+  const title = titleLayout(name, useWindowDimensions().fontScale);
+  const frame = vehicleLayout(specs.options.length);
   const dismiss = useSwipeDismiss(entry);
 
   return <View style={{ flex: 1 }}><GestureDetector gesture={dismiss.gesture}><Animated.ScrollView ref={dismiss.ref} testID="vehicle-scroll" style={{ flex: 1 }}
@@ -53,10 +61,12 @@ export function VehicleScreen({ entry, vehicle }: { entry: Entry; vehicle: numbe
     {/* The Figma canvas, shifted below the status bar / Dynamic Island by the same amount as the Garage canvas. */}
     <View testID="vehicle-canvas" style={{ position: 'absolute', left: 0, right: 0, top: safe.top, height: px(frame.height) }} pointerEvents="box-none">
       <Animated.View style={[place(px, 0, 0, 390, 200), header]} pointerEvents="box-none">
-        <Label accessibilityRole="header" style={typeStyle(px, 31, semibold, ink, place(px, 22, 105))}>{info.name}</Label>
-        <At px={px} value={info.model} x={23} y={145} size={12} color={mute} />
+        {/* A long composed name steps down in size, then wraps to two lines; the lines below move with it (titleLayout). */}
+        <Label testID="vehicle-title" accessibilityRole="header" numberOfLines={title.lines} adjustsFontSizeToFit minimumFontScale={0.75}
+          style={typeStyle(px, title.size, semibold, ink, place(px, 22, title.top, titleWidth))}>{name}</Label>
+        <At px={px} value={modelLine(info.model, specs, feed?.snapshot?.modelYear ?? null)} x={23} y={title.modelTop} size={12} color={mute} width={340} />
         <Pressable accessibilityRole="button" accessibilityLabel={'Connection: ' + status} accessibilityHint="Opens connection settings"
-          hitSlop={10} onPress={() => nav.push({ name: 'connection', vehicle })} style={place(px, 23, 170)}>
+          hitSlop={10} onPress={() => nav.push({ name: 'connection', vehicle })} style={place(px, 23, title.statusTop)}>
           <Label style={typeStyle(px, 10, medium, mute)}>{status.toUpperCase()}</Label>
         </Pressable>
       </Animated.View>
@@ -66,13 +76,14 @@ export function VehicleScreen({ entry, vehicle }: { entry: Entry; vehicle: numbe
         <View style={[place(px, 174, 21, 1, 125), { backgroundColor: rule }]} />
         <View style={[place(px, 14, 94, 328, 1), { backgroundColor: rule }]} />
         <At px={px} value="RANGE" x={14} y={22} size={10} font={medium} color={mute} />
-        <At px={px} value="FUEL" x={188} y={22} size={10} font={medium} color={mute} />
+        {/* Fuel, or the drive battery's charge for a car that reports one and no fuel level (EV). */}
+        <At px={px} value={values.level.label.toUpperCase()} x={188} y={22} size={10} font={medium} color={mute} />
         <At px={px} value="LAST DRIVE" x={14} y={108} size={10} font={medium} color={mute} />
         <At px={px} value="IDLE" x={188} y={108} size={10} font={medium} color={mute} />
         {/* Values breathe while the vehicle is being read; new values then glide in through CountUp. */}
         <UpdatingPulse vehicle={vehicle} style={StyleSheet.absoluteFill}>
           <Metric px={px} x={14} y={45} loading={loading} value={values.rangeKm} suffix=" km" empty="— km" style={metric} />
-          <Metric px={px} x={188} y={45} loading={loading} value={values.fuelPercent} suffix=" %" empty="— %" style={metric} />
+          <Metric px={px} x={188} y={45} loading={loading} value={values.level.percent} suffix=" %" empty="— %" style={metric} />
           {loading ? <Skeleton width={px(96)} height={px(13)} radius={px(5)} style={place(px, 14, 131)} />
             : <At px={px} value={values.lastDrive ?? '—'} x={14} y={128} size={15} font={semibold} />}
           {loading ? <Skeleton width={px(56)} height={px(13)} radius={px(5)} style={place(px, 188, 131)} />
@@ -90,13 +101,25 @@ export function VehicleScreen({ entry, vehicle }: { entry: Entry; vehicle: numbe
         </PressScale>
       </Animated.View>
 
-      <Animated.View style={[place(px, 0, 747, 390, 65), info3]}>
+      <Animated.View style={[place(px, 0, frame.action, 390, 65), info3]}>
         <ActionRow px={px} style={{ position: 'absolute', left: px(16), top: 0, marginTop: 0 }}
           title={feed ? 'Recent drives' : 'Connection settings'}
           onPress={() => nav.push(feed ? { name: 'drives', vehicle } : { name: 'connection', vehicle })} />
       </Animated.View>
 
-      <Animated.View style={[place(px, 16, 838, 358, 40), info4]}>
+      <Animated.View style={[place(px, 0, frame.specs, 390, 65), info4]}>
+        <ActionRow px={px} style={{ position: 'absolute', left: px(16), top: 0, marginTop: 0 }} title="Vehicle specs"
+          onPress={() => nav.push({ name: 'specs', vehicle })} />
+      </Animated.View>
+
+      {frame.options && <Animated.View testID="vehicle-options" accessible accessibilityLabel={'Options: ' + specs.options.join(', ')}
+        style={[place(px, 16, frame.options.y, 358, frame.options.height, 18), { backgroundColor: white }, info5]}>
+        <At px={px} value="OPTIONS" x={14} y={20} size={10} font={medium} color={mute} />
+        {specs.options.map((option, i) => <Label key={i} numberOfLines={1}
+          style={typeStyle(px, 14, regular, ink, place(px, 14, vehicleRows.optionsTop + i * vehicleRows.optionLine, 330))}>{option}</Label>)}
+      </Animated.View>}
+
+      <Animated.View style={[place(px, 16, frame.footer, 358, 40), info6]}>
         <View style={{ height: 1, backgroundColor: rule }} />
         <Pressable accessibilityRole="button" accessibilityHint="Opens connection settings" onPress={() => nav.push({ name: 'connection', vehicle })} hitSlop={8}>
           <View style={{ marginTop: px(13), marginLeft: px(6) }}>
