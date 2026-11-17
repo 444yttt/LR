@@ -9,6 +9,12 @@ export const vehicleCredits: readonly Credit[] = [
     source: 'https://commons.wikimedia.org/wiki/File:Red_Ferrari_Brickell,_Miami_Florida_March_2026.jpg',
     changes: 'Cut out and recoloured from red to white.',
   },
+  {
+    vehicle: 'Audi S e-tron GT', file: 'audi-s-etron-gt.png', author: 'Erik Drost', license: 'CC BY 2.0',
+    licenseUrl: 'https://creativecommons.org/licenses/by/2.0/',
+    source: 'https://commons.wikimedia.org/wiki/File:2022_Cleveland_Auto_Show_(51939310773).jpg',
+    changes: 'Photo shows the RS e-tron GT (same body). Cut out, side windows darkened, and levelled.',
+  },
 ];
 
 /** Vehicle images supplied by the app owner, who provided their source and licence. Not credited in the app. */

@@ -1,6 +1,6 @@
 # build.py <car> <workdir> <outdir>
 # Builds a transparent side-profile PNG from a crop (<prefix>_rgb.png) and BiRefNet mask (<prefix>_mask.npy).
-import json, numpy as np, cv2
+import sys, json, numpy as np, cv2
 from PIL import Image
 
 car, wd, od = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -22,6 +22,16 @@ CFG = {
  'x7': dict(prefix='x7', mirror=False, target_w=1760,
     ycut=[(0,1570),(458,1570),(462,1525),(3140,1525),(3142,1565),(99999,1565)],
     wheels=[(798.5,1397.5,337,354,334,262),(3574.5,1424.5,347,352,343,270)],
+    ),
+ # Audi RS e-tron GT (Kemora grey), crop x 0..8256, y 1550..4400 of the Commons original. Already faces left.
+ # Tyre hulls are asymmetric: the tread shows on the side facing the camera (front wheel right, rear wheel left).
+ 'etron': dict(prefix='etron', mirror=False, target_w=1760,
+    ycut=[(0,2460),(800,2460),(805,2700),(2180,2700),(2185,2440),(6150,2440),(6155,2700),(7480,2700),(7485,2300),(99999,2300)],
+    wheels=[(1470,2074,620,680,615,585),(6860,2094,690,566,588,560)],
+    # side glass + windscreen seen through the side: people and show lights behind the car show through it
+    glass=[(3790,324),(4300,330),(4840,342),(5200,366),(5500,399),(5800,444),(6100,519),(6400,624),(6634,720),(6400,786),
+           (6190,840),(4900,870),(3610,879),(3100,870),(2620,846),(2800,735),(3190,534)],
+    mirror_cap=[(3115,870),(3190,765),(3340,726),(3520,735),(3610,795),(3604,900),(3520,990),(3340,1050),(3220,990)],
     ),
 }[car]
 
@@ -121,6 +131,12 @@ if car=='rr':
     rgb = rgb*(1-vw[...,None]) + (rgb*0.16)*vw[...,None]
     log.append('darkened the see-through side door glass to privacy-tint level (x0.28), hiding showroom background/stickers seen through the windows')
     log.append('darkened the satin-silver side vent blade and its "Autobiography" script to gloss-black level (x0.16)')
+
+if car=='etron':
+    # privacy-tint the see-through glass (visitors and hall lights behind the car), sparing the carbon mirror cap
+    win = poly_mask(CFG['glass'],2.5) * (1-poly_mask(CFG['mirror_cap'],2.0))
+    rgb = rgb*(1-win[...,None]) + (rgb*0.28)*win[...,None]
+    log.append('darkened the see-through side glass and windscreen to privacy-tint level (x0.28), hiding the show visitors seen through the windows')
 
 if car in ('rr','x7'):
     for (cx,cy,rl,rr,rb,rim) in CFG['wheels']:

@@ -3,10 +3,10 @@
 The Range Rover and BMW X7 side profiles are **owner-supplied**. The app owner provided them, along with their source and licence
 (listed in `ownerSuppliedImages` in `src/credits.ts`). They are not credited in the app.
 
-The Ferrari 296 is a photograph from Wikimedia Commons, used under the license stated on its file page
-(checked through the Commons API on 2026-11-14; the SHA-1 of the downloaded original matched the API).
-The modified file keeps the same license. It is credited in the app under **＋ (Add vehicle) → Image credits**,
-which links to the source page (`src/credits.ts`).
+The Ferrari 296 and the Audi e-tron GT are photographs from Wikimedia Commons, each used under the license stated on its file page
+(checked through the Commons API on 2026-11-14 for the Ferrari and 2026-11-17 for the Audi; in both cases the SHA-1 of the
+downloaded original matched the API). Each modified file keeps the license of its original. They are credited in the app under
+**＋ (Add vehicle) → Image credits**, which links to each source page (`src/credits.ts`).
 
 The pipeline scripts are in `pipeline/` (see its README). Every image also went through a final **edge pass** (`pipeline/edges.py`). Anti-aliased fringe pixels with alpha < 160 take the colour of the nearest opaque car pixels, and alpha 160–254 blends toward it. Background colour therefore cannot survive in the fringe.
 
@@ -19,6 +19,7 @@ reflection is baked in. The app draws the floor ellipse and contact shadow as se
 | `range-rover-l460.png` | Range Rover (L460), black, dark wheels (owner-supplied) | 1570 × 618 |
 | `ferrari-296.png` | Ferrari 296, recoloured white (target: **Bianco Avus**) | 1779 × 542 |
 | `bmw-x7.png` | BMW X7 (G07), black, dark wheels (owner-supplied) | 1629 × 641 |
+| `audi-s-etron-gt.png` | Audi RS e-tron GT (stands in for the S e-tron GT; same body), blue-grey (Kemora Grey judged by eye, unconfirmed) | 1760 × 558 |
 
 ## range-rover-l460.png
 
@@ -48,6 +49,20 @@ reflection is baked in. The app draws the floor ellipse and contact shadow as se
   - **Recoloured red → white.** No suitably licensed side photo of a white 296 was found. In linear light the red paint's diffuse shading (R − min(G, B)) was scaled ×1.5 and mapped onto a neutral, very slightly warm white (sRGB ≈ `#FFFEF9`). The specular / reflection component (min(G, B)) was kept, so reflections and highlights stay photographic. The Scuderia shield badge, yellow calipers, lights, glass, tyres, wheels, and carbon trim were left untouched.
   - Target white: **Bianco Avus**, Ferrari's standard solid white. The owner wrote 「ビアンコバードゲージ」, which does not match a Ferrari paint name we could identify. **Needs owner confirmation.** If it should be Bianco Cervino, Bianco Italia (tri-coat), or another white, the recolour target is the `white` constant in `pipeline/build.py`.
   - Rotated −0.33° to level the contact points. Cropped and resampled ×0.411. Not mirrored (already facing left).
+
+## audi-s-etron-gt.png
+
+- **Source:** https://commons.wikimedia.org/wiki/File:2022_Cleveland_Auto_Show_(51939310773).jpg
+- **Original:** https://upload.wikimedia.org/wikipedia/commons/6/60/2022_Cleveland_Auto_Show_%2851939310773%29.jpg (8256 × 5504, SHA-1 `0357bc26a4ae39d34906fe63f42bfc73c04d7198`)
+- **Author:** Erik Drost (via Flickr, https://www.flickr.com/photos/edrost88/51939310773/)
+- **License:** CC BY 2.0 — https://creativecommons.org/licenses/by/2.0/ (Flickr license review passed on Commons, 2022-03-22)
+- **Vehicle:** an Audi **RS** e-tron GT (2022 Cleveland Auto Show) in a blue-grey that matches Audi's Kemora Grey. No suitably licensed pure side photo of an
+  S e-tron GT was found on Commons (the S photos there are all 3/4 views). The S and RS share the body; the RS differs in details such as
+  its wheels and red brake calipers. No number plate is fitted.
+- **Edits** (`pipeline/seg.py` crop x 0–8256, y 1550–4400; `pipeline/build.py etron`; then `pipeline/edges.py`):
+  - Background removed (BiRefNet) and edges decontaminated as above. Show-floor carpet and the soft contact shadow below the sill were removed. Tyres were made solid hulls.
+  - Side glass and the windscreen visible through it were darkened to privacy-tint level (×0.28). This hides the show visitors seen through the windows. The carbon mirror cap was left as it was.
+  - Rotated −0.07° to level the contact points. Cropped and resampled ×0.218. Not mirrored (already facing left), so the tyre and caliper lettering reads correctly. Not recoloured.
 
 ## Verification
 
