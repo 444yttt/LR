@@ -7,6 +7,9 @@ import { ActionRow, NavBar, useFeed } from '../ui/parts';
 import { useSafeFrame } from '../ui/safe';
 import { vehicleLayout, vehicleRows } from '../ui/safeArea';
 import { useSpecs } from '../ui/specs';
+import { useFuelLog, useFuelLogStore } from '../ui/fuelLog';
+import { economyTitle } from './EconomyScreen';
+import { energyOf, formatEconomy, logEconomy } from '../fuelLog.ts';
 import { displayName, modelLine, titleLayout, titleWidth } from '../vehicleSpecs.ts';
 import { useNav, useSwipeDismiss, type Entry } from '../ui/stack';
 import { LiveStatusLine, UpdateNowButton, UpdatingPulse } from '../ui/live';
@@ -43,6 +46,7 @@ export function VehicleScreen({ entry, vehicle }: { entry: Entry; vehicle: numbe
   const info2 = useProgressReveal(p, 0.46);
   const info3 = useProgressReveal(p, 0.5);
   const info4 = useProgressReveal(p, 0.53);
+  const info4b = useProgressReveal(p, 0.545);
   const info5 = useProgressReveal(p, 0.56);
   const info6 = useProgressReveal(p, 0.6);
   const back = useProgressReveal(p, 0.36, 0);
@@ -54,6 +58,11 @@ export function VehicleScreen({ entry, vehicle }: { entry: Entry; vehicle: numbe
   const title = titleLayout(name, useWindowDimensions().fontScale);
   const frame = vehicleLayout(specs.options.length);
   const dismiss = useSwipeDismiss(entry);
+  // Latest economy from the owner's refuel log, as the row's detail; nothing when the log cannot give one.
+  const energy = energyOf(info, feed?.snapshot ?? null);
+  const fromLog = logEconomy(useFuelLog(vehicle));
+  const { unit } = useFuelLogStore();
+  const economyDetail = fromLog ? formatEconomy(fromLog.latest.economy, energy, unit) : undefined;
 
   return <View style={{ flex: 1 }}><GestureDetector gesture={dismiss.gesture}><Animated.ScrollView ref={dismiss.ref} testID="vehicle-scroll" style={{ flex: 1 }}
     {...safe.scroll} onScroll={onScroll} scrollEventThrottle={16} bounces={false}
@@ -110,6 +119,11 @@ export function VehicleScreen({ entry, vehicle }: { entry: Entry; vehicle: numbe
       <Animated.View style={[place(px, 0, frame.specs, 390, 65), info4]}>
         <ActionRow px={px} style={{ position: 'absolute', left: px(16), top: 0, marginTop: 0 }} title="Vehicle specs"
           onPress={() => nav.push({ name: 'specs', vehicle })} />
+      </Animated.View>
+
+      <Animated.View style={[place(px, 0, frame.economy, 390, 65), info4b]}>
+        <ActionRow px={px} style={{ position: 'absolute', left: px(16), top: 0, marginTop: 0 }} title={economyTitle(energy)} detail={economyDetail}
+          onPress={() => nav.push({ name: 'economy', vehicle })} />
       </Animated.View>
 
       {frame.options && <Animated.View testID="vehicle-options" accessible accessibilityLabel={'Options: ' + specs.options.join(', ')}

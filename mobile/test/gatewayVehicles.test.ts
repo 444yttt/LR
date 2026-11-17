@@ -3,7 +3,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { API_TO_APP, APP_TO_API, JLR_VEHICLE, parseVehicleList, readVehicles, requestVehicles } from '../src/gatewayVehicles.ts';
+import { API_TO_APP, APP_TO_API, JLR_VEHICLE, parseVehicleList, readVehicles, requestHistory, requestVehicles } from '../src/gatewayVehicles.ts';
+import { stackFor } from '../src/garageModel.ts';
 import { VEHICLES, connectionState, healthView, metrics, routeFromUrl, vehicleFeeds, type GarageInput } from '../src/garageModel.ts';
 
 const now = Date.parse('2026-11-17T09:00:00Z');
@@ -99,4 +100,29 @@ test('reads /v1/vehicles; falls back to /v1/range-rover only on 404 (gateway not
     result = await requestVehicles(gateway({ '/v1/vehicles': status }));
     assert.deepEqual([calls, result.response.status], [['/v1/vehicles'], status]);
   }
+});
+
+test('history: GET /v1/vehicles/<api id>/history; 404 = gateway not deployed yet; failures never become points', async () => {
+  const paths: string[] = [];
+  const reply = (status: number, body: unknown = {}) => async (path: string) => { paths.push(path); return new Response(JSON.stringify(body), { status }); };
+  const ok = await requestHistory(reply(200, { vehicleId: 'range-l460', points: [{ fetchedAt: '2026-01-01T00:00:00Z', fuelPercent: 50, socPercent: null, odometerKm: 12345 }] }), 'range-rover');
+  assert.equal(paths[0], '/v1/vehicles/range-l460/history');
+  assert.deepEqual(ok, { kind: 'ok', points: [{ fetchedAt: '2026-01-01T00:00:00.000Z', fuelPercent: 50, socPercent: null, odometerKm: 12345 }] });
+  assert.deepEqual(await requestHistory(reply(404), 'range-rover'), { kind: 'notDeployed' });
+  assert.deepEqual(await requestHistory(reply(503), 'bmw-x7'), { kind: 'unavailable' });
+  assert.deepEqual(await requestHistory(reply(200, { nope: true }), 'bmw-x7'), { kind: 'unavailable' });
+  assert.deepEqual(await requestHistory(async () => { throw new Error('offline'); }, 'bmw-x7'), { kind: 'unavailable' });
+  const before = paths.length;
+  assert.deepEqual(await requestHistory(reply(200), 'ferrari-296'), { kind: 'noSource' });
+  assert.equal(paths.length, before);
+});
+
+test('odometer: parsed from the vehicle entry when present, otherwise null; economy routes and deep links', () => {
+  const list = parseVehicleList({ vehicles: [entry({ id: 'bmw-x7', odometerKm: 318 }), entry({ id: 'range-l460' })] });
+  assert.equal(list['bmw-x7']!.odometerKm, 318);
+  assert.equal(list['range-rover']!.odometerKm, null);
+  assert.deepEqual(routeFromUrl('garage-monitor://vehicle/bmw-x7/economy'), { name: 'economy', vehicle: 1 });
+  assert.deepEqual(routeFromUrl('garage-monitor://vehicle/audi-s-etron-gt/refuel'), { name: 'refuel', vehicle: 2 });
+  assert.deepEqual(stackFor({ name: 'refuel', vehicle: 2 }).map(r => r.name), ['vehicle', 'economy', 'refuel']);
+  assert.deepEqual(stackFor({ name: 'economy', vehicle: 3 }).map(r => r.name), ['vehicle', 'economy']);
 });

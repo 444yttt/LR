@@ -14,7 +14,7 @@ import {
   type PersistedSession, type SessionStore,
 } from './session';
 import { parseSnapshot } from './telemetry';
-import { JLR_VEHICLE, readVehicles, requestVehicles, type VehicleSnapshots } from './gatewayVehicles.ts';
+import { JLR_VEHICLE, readVehicles, requestHistory, requestVehicles, type HistoryLoad, type VehicleSnapshots } from './gatewayVehicles.ts';
 import { VEHICLES, type Phase } from './garageModel.ts';
 
 WebBrowser.maybeCompleteAuthSession();
@@ -292,6 +292,28 @@ export function useGarage() {
     return id === JLR_VEHICLE ? requestLive(false) : refresh();
   }, [requestLive, refresh]);
 
+  /**
+   * Telemetry history for the fuel-economy estimate (GET /v1/vehicles/:id/history). Read on demand by the economy
+   * screen only; it never changes `phase`, never renews the session and never touches the snapshots.
+   */
+  const loadHistory = useCallback(async (vehicle: number): Promise<HistoryLoad> => {
+    const info = VEHICLES[vehicle];
+    if (!info?.connected) return { kind: 'noSource' };
+    const credentials = session.current;
+    if (!api || !credentials) return { kind: 'signedOut' };
+    if (credentialsForRequest(asPersistedSession(credentials), Date.now()).type !== 'use') return { kind: 'unavailable' };
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12000);
+    try {
+      return await requestHistory(path => fetch(api + path, {
+        headers: { Authorization: 'Bearer ' + credentials.token, Accept: 'application/json' },
+        signal: controller.signal, redirect: 'error',
+      }), info.id);
+    } finally {
+      clearTimeout(timeout);
+    }
+  }, []);
+
   const renew = useCallback(async (refreshToken: string) => {
     if (!discovery || renewing.current) return;
     renewing.current = true;
@@ -418,7 +440,7 @@ export function useGarage() {
   }, [refresh]);
 
   return {
-    snapshot, snapshots, phase, refresh, refreshNow, liveRefresh, signIn, signOut, notificationFailed, discoveryFailed, lastSyncedAt,
+    snapshot, snapshots, phase, refresh, refreshNow, loadHistory, liveRefresh, signIn, signOut, notificationFailed, discoveryFailed, lastSyncedAt,
     retryDiscovery: () => setDiscoveryAttempt(value => value + 1),
     hasSession: session.current !== null,
     canSignIn: Boolean(discovery && request),

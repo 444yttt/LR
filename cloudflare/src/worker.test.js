@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   buildApiErrorCode, claimRun, correlationId, describeShape, distanceKm, normaliseJlr, numFrom, retryAfterSeconds, dpopClaims, probeRecord, safeSchemaKey, dpopNonce, jlrResourceHeaders, normaliseVin,
-  safeContentType, sanitizeIngestionCode, scopeNames, shouldRetryDpop, wwwAuthenticateError,
+  safeContentType, sanitizeIngestionCode, scopeNames, shouldRetryDpop, wwwAuthenticateError, historyStatements, SNAPSHOT_HISTORY_LIMIT,
 } from './worker.js';
 
 const SYNTHETIC_VIN = 'TESTVN00000000001';
@@ -203,4 +203,26 @@ test('schema probe classifies string formats without recording them', () => {
   const { paths } = describeShape({ a: '63', b: '12.6 V', c: 'true', d: '2026-11-15T08:00:00Z', e: 'LOCKED', f: '' });
   assert.deepEqual(paths, ['$.a:string(numeric)', '$.b:string(numeric+unit)', '$.c:string(bool)',
     '$.d:string(datetime)', '$.e:string', '$.f:string(empty)', '$:object']);
+});
+
+test('snapshot history: one idempotent row of already-mapped values per collect, pruned per vehicle, no VIN or payload', () => {
+  const calls = [];
+  const db = { prepare(sql) { const call = { sql, args: [] }; calls.push(call); return { bind(...args) { call.args = args; return this; } }; } };
+  // Synthetic values only.
+  const signals = normaliseJlr({ Vehicle: { TraveledDistance: '12345', Powertrain: { FuelSystem: { Range: '500', RelativeLevel: '42' } } } }, null, null);
+  const statements = historyStatements(db, 'range-l460', '2026-11-15T08:00:00.000Z', signals);
+  assert.equal(statements.length, 2);
+  assert.match(calls[0].sql, /^INSERT OR IGNORE INTO snapshot_history\(vehicle_id,fetched_at,fuel_percent,odometer_km,range_km,soc_percent,electric_range_km\)/);
+  assert.deepEqual(calls[0].args, ['range-l460', '2026-11-15T08:00:00.000Z', 42, 12345, 500, null, null]);
+  assert.match(calls[1].sql, /DELETE FROM snapshot_history WHERE vehicle_id=\?[\s\S]*ORDER BY fetched_at DESC LIMIT \?/);
+  assert.deepEqual(calls[1].args, ['range-l460', 'range-l460', SNAPSHOT_HISTORY_LIMIT]);
+  assert.ok(SNAPSHOT_HISTORY_LIMIT >= 100 && SNAPSHOT_HISTORY_LIMIT <= 1000);
+  for (const call of calls) assert.ok(!/vin|payload|lat|lon|location/i.test(call.sql));
+  // A reading with neither a level nor an odometer writes nothing.
+  calls.length = 0;
+  assert.deepEqual(historyStatements(db, 'range-l460', '2026-11-15T08:00:00.000Z', normaliseJlr(null, null, null)), []);
+  assert.equal(calls.length, 0);
+  // Non-finite values are stored as NULL, never invented.
+  historyStatements(db, 'range-l460', 't', { fuelPercent: NaN, odometerKm: 1, rangeKm: undefined, soc: null, electricRangeKm: Infinity });
+  assert.deepEqual(calls[0].args.slice(2), [null, 1, null, null, null]);
 });

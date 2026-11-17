@@ -6,6 +6,8 @@ import { DriveScreen, DrivesScreen } from './screens/DrivesScreen';
 import { GarageScreen } from './screens/GarageScreen';
 import { AddVehicleSheet, ConnectionScreen, NotificationsScreen, StatusScreen } from './screens/SettingsScreens';
 import { SpecsScreen } from './screens/SpecsScreen';
+import { EconomyScreen, RefuelScreen } from './screens/EconomyScreen';
+import { FuelLogProvider } from './ui/fuelLog';
 import { VehicleScreen } from './screens/VehicleScreen';
 import { DataProvider, type Data } from './ui/parts';
 import { SpecsProvider } from './ui/specs';
@@ -22,6 +24,8 @@ function screen(entry: Entry): ReactNode {
     case 'status': return <StatusScreen vehicle={route.vehicle} />;
     case 'connection': return <ConnectionScreen vehicle={route.vehicle} />;
     case 'specs': return <SpecsScreen vehicle={route.vehicle} />;
+    case 'economy': return <EconomyScreen vehicle={route.vehicle} />;
+    case 'refuel': return <RefuelScreen vehicle={route.vehicle} entryId={route.entry} />;
     case 'notifications': return <NotificationsScreen />;
   }
 }
@@ -36,12 +40,14 @@ export function GarageApp({ data, children }: { data: Data; children?: ReactNode
       <NowProvider>
         <DataProvider value={data}>
           <SpecsProvider>
+          <FuelLogProvider>
           <View style={{ flex: 1, backgroundColor: page }}>
             <Stack base={<GarageScreen onAdd={() => setAdding(true)} />} render={screen}>{children}</Stack>
             <Sheet visible={adding} onClose={() => setAdding(false)}>
               <AddVehicleSheet onClose={() => setAdding(false)} />
             </Sheet>
           </View>
+          </FuelLogProvider>
           </SpecsProvider>
         </DataProvider>
       </NowProvider>

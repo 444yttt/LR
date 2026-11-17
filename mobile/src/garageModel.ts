@@ -33,6 +33,8 @@ export type VehicleInfo = {
   sourceShort: string;
   diagnostics: string;
   ownerApp: string;
+  /** What the vehicle runs on: litres and km/L, or kWh and km/kWh (fuelLog.energyOf). A model fact, not owner specs. */
+  energy: 'fuel' | 'electric';
 };
 
 /**
@@ -51,24 +53,28 @@ export const VEHICLES: readonly VehicleInfo[] = [
     offlineStatus: 'Sync unverified', offlineTitle: 'Not checked', offlineCaption: 'Health data not yet verified',
     adapterNote: 'Read-only through JLR Data Hub owner authorization and the Nostos gateway.',
     brand: 'Land Rover', source: 'JLR Data Hub', sourceShort: 'JLR', diagnostics: 'JLR diagnostics', ownerApp: 'the Land Rover Remote app',
+    energy: 'fuel',
   },
   {
     id: 'bmw-x7', name: 'BMW X7', model: 'BMW', connected: true,
     offlineStatus: 'Sync unverified', offlineTitle: 'Not checked', offlineCaption: 'Health data not yet verified',
     adapterNote: 'Read-only through the Nostos gateway.',
     brand: 'BMW', source: 'Nostos gateway', sourceShort: 'Nostos gateway', diagnostics: 'Nostos gateway', ownerApp: 'the My BMW app',
+    energy: 'fuel',
   },
   {
     id: 'audi-s-etron-gt', name: 'Audi S e-tron GT', model: 'Audi', connected: true,
     offlineStatus: 'Sync unverified', offlineTitle: 'Not checked', offlineCaption: 'Health data not yet verified',
     adapterNote: 'Read-only through the Nostos gateway.',
     brand: 'Audi', source: 'Nostos gateway', sourceShort: 'Nostos gateway', diagnostics: 'Nostos gateway', ownerApp: 'the myAudi app',
+    energy: 'electric',
   },
   {
     id: 'ferrari-296', name: 'Ferrari 296', model: 'Ferrari', connected: false,
     offlineStatus: 'Not connected', offlineTitle: 'Not connected', offlineCaption: 'Vehicle data source not connected',
     adapterNote: 'No Ferrari data source is available in this build. MyFerrari connectivity and an optional owner-installed OBD device are still being investigated.',
     brand: 'Ferrari', source: 'MyFerrari', sourceShort: 'Ferrari', diagnostics: 'Ferrari diagnostics', ownerApp: 'the MyFerrari app',
+    energy: 'fuel',
   },
 ];
 
@@ -315,6 +321,9 @@ export type Route =
   | { name: 'status'; vehicle: number }
   | { name: 'connection'; vehicle: number }
   | { name: 'specs'; vehicle: number }
+  | { name: 'economy'; vehicle: number }
+  /** Refuel log entry editor: a new entry, or the stored entry `entry` (its id). */
+  | { name: 'refuel'; vehicle: number; entry?: string }
   | { name: 'notifications' };
 
 /** Screens to push above the Garage for a deep link, e.g. drives → [Range Rover, Recent drives]. */
@@ -326,7 +335,9 @@ export function stackFor(route: Route): Route[] {
     case 'drive': return [{ name: 'vehicle', vehicle: route.vehicle }, { name: 'drives', vehicle: route.vehicle }, route];
     case 'status':
     case 'connection':
-    case 'specs': return [{ name: 'vehicle', vehicle: route.vehicle }, route];
+    case 'specs':
+    case 'economy': return [{ name: 'vehicle', vehicle: route.vehicle }, route];
+    case 'refuel': return [{ name: 'vehicle', vehicle: route.vehicle }, { name: 'economy', vehicle: route.vehicle }, route];
     case 'notifications': return [{ name: 'vehicle', vehicle: 0 }, { name: 'connection', vehicle: 0 }, route];
   }
 }
@@ -336,6 +347,7 @@ export const scheme = 'garage-monitor';
 /**
  * garage-monitor:// deep links. `garage-monitor://auth` is the OAuth redirect and is never a screen.
  * Supported: /, /vehicle/<id>, /vehicle/<id>/status, /vehicle/<id>/connection, /vehicle/<id>/drives, /vehicle/<id>/specs,
+ * /vehicle/<id>/economy, /vehicle/<id>/refuel (a new log entry),
  * /drives (Range Rover),
  * /notifications.
  */
@@ -356,6 +368,8 @@ export function routeFromUrl(url: string | null | undefined): Route | null {
     if (parts[2] === 'connection') return { name: 'connection', vehicle };
     if (parts[2] === 'drives') return { name: 'drives', vehicle };
     if (parts[2] === 'specs') return { name: 'specs', vehicle };
+    if (parts[2] === 'economy') return { name: 'economy', vehicle };
+    if (parts[2] === 'refuel') return { name: 'refuel', vehicle };
   }
   return null;
 }

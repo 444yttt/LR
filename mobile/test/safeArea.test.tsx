@@ -96,7 +96,8 @@ describe('iPhone 16 Pro insets (62 / 34)', () => {
 
   test('sub-screens (drives, status, connection, notifications): back + title shifted, bottom padding clears the home indicator', () => {
     const shift = topShift(px, 62);
-    for (const route of [{ name: 'drives', vehicle: 0 }, { name: 'status', vehicle: 0 }, { name: 'connection', vehicle: 0 }, { name: 'notifications' }, { name: 'specs', vehicle: 1 }] as Route[]) {
+    for (const route of [{ name: 'drives', vehicle: 0 }, { name: 'status', vehicle: 0 }, { name: 'connection', vehicle: 0 }, { name: 'notifications' }, { name: 'specs', vehicle: 1 },
+      { name: 'economy', vehicle: 0 }, { name: 'economy', vehicle: 3 }, { name: 'refuel', vehicle: 2 }] as Route[]) {
       const view = mount([route]);
       // Back sits in the fixed NavBar slot, shifted by the same amount as the canvas.
       close(flat(screen.getByTestId('nav-leading')).top, shift + px(45));
@@ -112,12 +113,17 @@ describe('iPhone 16 Pro insets (62 / 34)', () => {
   test('vehicle detail with an options list: the canvas grows so the footer still clears the home indicator', () => {
     for (const count of [1, 5, 30]) {
       const layout = vehicleLayout(count);
-      expect(layout.options!.y).toBeGreaterThanOrEqual(layout.specs + 65);
+      expect(layout.options!.y).toBeGreaterThanOrEqual(layout.economy + 65);
       expect(layout.footer).toBeGreaterThan(layout.options!.y + layout.options!.height);
       expect(layout.height - layout.contentBottom).toBe(canvases.vehicle.height - canvases.vehicle.contentBottom);
     }
     // Rows below the hero stage (208–412) and the metrics card only.
     expect(vehicleLayout(0).action).toBeGreaterThan(412);
+    // Drives, specs and economy rows: 65pt each, 12pt apart, never overlapping.
+    const rows = vehicleLayout(0);
+    expect(rows.specs - rows.action).toBe(77);
+    expect(rows.economy - rows.specs).toBe(77);
+    expect(rows.footer).toBeGreaterThanOrEqual(rows.economy + 65 + 12);
     expect(vehicleLayout(0)).toMatchObject({ height: canvases.vehicle.height, contentBottom: canvases.vehicle.contentBottom, options: null });
   });
 

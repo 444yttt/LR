@@ -3,6 +3,7 @@
 // unknown ids are ignored, and no id is ever guessed from a name.
 import { parseSnapshot, type Snapshot } from './telemetry.ts';
 import type { VehicleId } from './garageModel.ts';
+import { parseHistory, type HistoryPoint } from './fuelEstimate.ts';
 
 /** Gateway / D1 id → app id. */
 export const API_TO_APP: Readonly<Record<string, VehicleId>> = Object.freeze({
@@ -51,3 +52,30 @@ export async function requestVehicles(get: (path: string) => Promise<Response>):
 
 export const readVehicles = (body: unknown, legacy: boolean): VehicleSnapshots =>
   legacy ? { [JLR_VEHICLE]: parseSnapshot(body) } : parseVehicleList(body);
+
+/** Outcome of reading one vehicle's telemetry history (fuel-economy estimate). */
+export type HistoryLoad =
+  | { kind: 'ok'; points: HistoryPoint[] }
+  /** The gateway predates GET /v1/vehicles/:id/history (404): it needs a deploy before history exists. */
+  | { kind: 'notDeployed' }
+  | { kind: 'unavailable' }
+  | { kind: 'signedOut' }
+  /** The vehicle has no gateway data source (Ferrari). */
+  | { kind: 'noSource' };
+
+/**
+ * GET /v1/vehicles/:apiId/history → points, oldest first. Read-only; a failure is reported, never filled in.
+ * `get` performs the authorised request (the caller owns the token and timeout).
+ */
+export async function requestHistory(get: (path: string) => Promise<Response>, id: VehicleId): Promise<HistoryLoad> {
+  const apiId = APP_TO_API[id];
+  if (!apiId) return { kind: 'noSource' };
+  try {
+    const response = await get('/v1/vehicles/' + encodeURIComponent(apiId) + '/history');
+    if (response.status === 404) return { kind: 'notDeployed' };
+    if (!response.ok) return { kind: 'unavailable' };
+    return { kind: 'ok', points: parseHistory(await response.json()) };
+  } catch {
+    return { kind: 'unavailable' };
+  }
+}
