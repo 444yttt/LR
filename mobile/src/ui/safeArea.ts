@@ -47,25 +47,30 @@ export const fontScaleCap = { canvas: 1.15, flow: 1.6 } as const;
 export const canvases = {
   /** Four cards (vehicleGeometry.cardY): the last card ends at 873 + 225; the Figma 81pt tail below it is kept. */
   garage: { height: 1179, contentBottom: 1098 },
-  /** Vehicle detail without an options list (see vehicleLayout). */
-  vehicle: { height: 997, contentBottom: 943 },
+  /** Vehicle detail without an options list (see vehicleLayout): three action rows, footer, the original 54pt tail. */
+  vehicle: { height: 1074, contentBottom: 1020 },
   subScreen: { minHeight: 920, titleTop: 105, back: 45, paddingBottom: 56 },
 } as const;
 
 /**
  * Lower blocks of the vehicle detail canvas (design pt). Above y 747 the Figma frame is unchanged (header, hero stage
- * 208–412, metrics, status). Below it: the drives / connection row, the "Vehicle specs" row, an optional options card
- * (only when the owner entered options; one 26pt line each, room for the canvas Dynamic Type cap), then the footer.
- * The frame grows with the options card and keeps the original 54pt below the footer's text.
+ * 208–412, metrics, status). Below it: the drives / connection row, the "Vehicle specs" row, the "Fuel economy" row
+ * (same 12pt rhythm), an optional options card (only when the owner entered options; one 26pt line each, room for the
+ * canvas Dynamic Type cap), then the footer. The frame grows with the options card and keeps the original 54pt below
+ * the footer's text.
  */
-export const vehicleRows = { action: 747, specs: 824, rowHeight: 65, gap: 18, optionsTop: 44, optionLine: 26, optionsBottom: 14, footerGap: 26, footerText: 28, tail: 54 } as const;
+export const vehicleRows = { action: 747, specs: 824, economy: 901, rowHeight: 65, gap: 18, optionsTop: 44, optionLine: 26, optionsBottom: 14, footerGap: 26, footerText: 28, tail: 54 } as const;
 export function vehicleLayout(optionCount: number) {
   const r = vehicleRows;
-  const optionsY = r.specs + r.rowHeight + r.gap;
+  const lastRow = r.economy + r.rowHeight;
+  const optionsY = lastRow + r.gap;
   const optionsHeight = optionCount > 0 ? r.optionsTop + optionCount * r.optionLine + r.optionsBottom : 0;
-  const footer = optionCount > 0 ? optionsY + optionsHeight + r.footerGap : r.specs + r.rowHeight + r.footerGap;
+  const footer = optionCount > 0 ? optionsY + optionsHeight + r.footerGap : lastRow + r.footerGap;
   const contentBottom = footer + r.footerText;
-  return { action: r.action, specs: r.specs, options: optionCount > 0 ? { y: optionsY, height: optionsHeight } : null, footer, contentBottom, height: contentBottom + r.tail };
+  return {
+    action: r.action, specs: r.specs, economy: r.economy, options: optionCount > 0 ? { y: optionsY, height: optionsHeight } : null,
+    footer, contentBottom, height: contentBottom + r.tail,
+  };
 }
 
 /**

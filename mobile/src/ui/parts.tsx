@@ -3,7 +3,7 @@ import { Keyboard, KeyboardAvoidingView, Platform, RefreshControl, StyleSheet, T
 import Animated, { interpolate, useAnimatedScrollHandler, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import type { GarageData } from '../useGarage';
 import { vehicleFeeds, type Feed, type GarageInput } from '../garageModel.ts';
-import type { VehicleSnapshots } from '../gatewayVehicles.ts';
+import type { HistoryLoad, VehicleSnapshots } from '../gatewayVehicles.ts';
 import { liveRefreshView } from '../liveRefresh.ts';
 import { PressScale, Reveal, haptics } from './motion';
 import { useEntry, useNav } from './stack';
@@ -17,6 +17,8 @@ export type Data = Pick<GarageData, 'snapshot' | 'phase' | 'refresh' | 'refreshN
   snapshots?: VehicleSnapshots;
   /** Synthetic per-vehicle feeds. Set only by the demo/preview entry point (src/demo); production leaves it undefined. */
   demo?: readonly Feed[] | null;
+  /** Telemetry history for the economy estimate (useGarage). Absent (demo, tests) → no history, shown as such. */
+  loadHistory?: (vehicle: number) => Promise<HistoryLoad>;
 };
 
 const DataContext = createContext<Data | null>(null);

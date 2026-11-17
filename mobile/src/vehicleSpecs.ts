@@ -10,18 +10,46 @@ export type VehicleSpecs = {
   engine: string;
   year: string;
   options: string[];
+  /**
+   * Usable fuel tank capacity in litres, or for an electric vehicle the usable battery capacity in kWh (see
+   * fuelLog.energyOf). Optional; null until the owner enters it. Never inferred from telemetry or the vehicle table.
+   * Added after the first release of this document: v1 documents without it still load (it reads as null).
+   */
+  capacity: number | null;
 };
 
 /** Specs per vehicle, keyed by the stable VehicleId (never by VEHICLES index, so a reorder cannot mix them up). */
 export type SpecsMap = Partial<Record<VehicleId, VehicleSpecs>>;
 
 export const SPECS_STORAGE_KEY = 'nostos.vehicleSpecs';
+// Still 1: `capacity` is an optional addition that older documents simply lack, and older builds drop unknown keys.
 export const SPECS_VERSION = 1;
 
 /** Field caps. Grade + engine are kept short enough that the composed detail title fits two lines (see titleLayout). */
-export const specLimits = { grade: 30, engine: 24, year: 12, option: 60, options: 30 } as const;
+export const specLimits = { grade: 30, engine: 24, year: 12, option: 60, options: 30, capacityMin: 1, capacityMax: 300 } as const;
 
-export const emptySpecs: VehicleSpecs = Object.freeze({ grade: '', engine: '', year: '', options: Object.freeze([]) as unknown as string[] });
+export const emptySpecs: VehicleSpecs = Object.freeze({ grade: '', engine: '', year: '', options: Object.freeze([]) as unknown as string[], capacity: null });
+
+/** A stored capacity: a finite number within limits, rounded to 0.1; anything else is null (not entered). */
+export function cleanCapacity(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+  const rounded = Math.round(value * 10) / 10;
+  return rounded >= specLimits.capacityMin && rounded <= specLimits.capacityMax ? rounded : null;
+}
+
+/**
+ * Typed capacity text → number. '' is "not entered" (null); text that is not a number in range is 'invalid', so the
+ * editor can say so instead of silently dropping it. Accepts a decimal comma.
+ */
+export function parseCapacityText(text: string): number | null | 'invalid' {
+  const trimmed = text.trim().replace(',', '.');
+  if (!trimmed) return null;
+  if (!/^\d{1,4}(\.\d{0,2})?$/.test(trimmed)) return 'invalid';
+  return cleanCapacity(Number(trimmed)) ?? 'invalid';
+}
+
+/** Capacity as editable text ('' when not entered). */
+export const capacityText = (capacity: number | null) => capacity === null ? '' : String(capacity);
 
 /** Every vehicle that can hold specs (the VEHICLES ids; test/vehicleSpecs.test.ts keeps them in step). */
 export const VEHICLE_IDS: readonly VehicleId[] = ['range-rover', 'bmw-x7', 'audi-s-etron-gt', 'ferrari-296'];
@@ -43,13 +71,14 @@ export function normalizeSpecs(value: unknown): VehicleSpecs {
     engine: cleanText(input.engine, specLimits.engine),
     year: cleanText(input.year, specLimits.year),
     options,
+    capacity: cleanCapacity(input.capacity),
   };
 }
 
-export const isEmptySpecs = (specs: VehicleSpecs) => !specs.grade && !specs.engine && !specs.year && !specs.options.length;
+export const isEmptySpecs = (specs: VehicleSpecs) => !specs.grade && !specs.engine && !specs.year && !specs.options.length && specs.capacity === null;
 
 export function sameSpecs(a: VehicleSpecs, b: VehicleSpecs): boolean {
-  return a.grade === b.grade && a.engine === b.engine && a.year === b.year
+  return a.grade === b.grade && a.engine === b.engine && a.year === b.year && a.capacity === b.capacity
     && a.options.length === b.options.length && a.options.every((option, i) => option === b.options[i]);
 }
 

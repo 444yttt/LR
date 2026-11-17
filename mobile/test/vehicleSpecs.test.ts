@@ -7,9 +7,10 @@ import { VEHICLE_IDS } from '../src/vehicleSpecs.ts';
 import {
   SPECS_VERSION, cardName, cardNameWidth, displayName, emptySpecs, isEmptySpecs, modelLine, normalizeSpecs, parseSpecs,
   serializeSpecs, specLimits, specsFor, textWidth, titleLayout, titleWidth, headerLimit, withSpecs, type VehicleSpecs,
+  capacityText, parseCapacityText, sameSpecs,
 } from '../src/vehicleSpecs.ts';
 
-const fake: VehicleSpecs = { grade: 'Test Trim', engine: 'V6', year: '2020', options: ['Test Audio', 'Test Wheels'] };
+const fake: VehicleSpecs = { grade: 'Test Trim', engine: 'V6', year: '2020', options: ['Test Audio', 'Test Wheels'], capacity: null };
 const doc = (vehicles: unknown, version: unknown = SPECS_VERSION) => JSON.stringify({ version, vehicles });
 
 test('parse: missing, empty, corrupt, wrong-version and wrong-shape storage is empty specs, never a throw', () => {
@@ -26,10 +27,10 @@ test('parse: missing keys and wrong types become empty fields; unknown vehicles 
     'bmw-x7': { options: ['  Test   Audio ', '', 3, '   '] },
     'unknown-car': fake,
   }));
-  assert.deepEqual(map['range-rover'], { grade: 'Test Trim', engine: '', year: '', options: [] });
+  assert.deepEqual(map['range-rover'], { grade: 'Test Trim', engine: '', year: '', options: [], capacity: null });
   // Every field invalid → nothing entered → no entry at all.
   assert.equal(map['ferrari-296'], undefined);
-  assert.deepEqual(map['bmw-x7'], { grade: '', engine: '', year: '', options: ['Test Audio'] });
+  assert.deepEqual(map['bmw-x7'], { grade: '', engine: '', year: '', options: ['Test Audio'], capacity: null });
   assert.deepEqual(Object.keys(map).sort(), ['bmw-x7', 'range-rover']);
 });
 
@@ -57,7 +58,7 @@ test('withSpecs replaces one vehicle and removes it when cleared', () => {
   let map = withSpecs({}, 'ferrari-296', fake);
   map = withSpecs(map, 'range-rover', { ...emptySpecs, year: '2020' });
   assert.deepEqual(Object.keys(map).sort(), ['ferrari-296', 'range-rover']);
-  map = withSpecs(map, 'ferrari-296', { grade: ' ', engine: '', year: '', options: [' '] });
+  map = withSpecs(map, 'ferrari-296', { grade: ' ', engine: '', year: '', options: [' '], capacity: null });
   assert.deepEqual(Object.keys(map), ['range-rover']);
 });
 
@@ -123,4 +124,33 @@ test('specs allow-list is exactly the VEHICLES ids, Audi included; empty specs s
   const raw = doc({ 'audi-s-etron-gt': { grade: 'Test Trim' }, 'audi-s-etron': { grade: 'x' } });
   assert.deepEqual(Object.keys(parseSpecs(raw)), ['audi-s-etron-gt']);
   for (const vehicle of VEHICLES) assert.equal(specsFor(parseSpecs(null), vehicle.id), emptySpecs);
+});
+
+// Capacity (fuel economy). Values are obviously fake TEST DATA ONLY (80 L, 42.5), not any real vehicle's tank.
+test('capacity: a v1 document saved before the field existed still loads grade / engine / year / options, capacity unset', () => {
+  // Exactly the shape the first release wrote: no capacity key.
+  const legacy = JSON.stringify({ version: 1, vehicles: { 'range-rover': { grade: 'Test Trim', engine: 'V6', year: '2020', options: ['Test Audio'] } } });
+  assert.deepEqual(parseSpecs(legacy), { 'range-rover': { grade: 'Test Trim', engine: 'V6', year: '2020', options: ['Test Audio'], capacity: null } });
+  assert.equal(SPECS_VERSION, 1);
+});
+
+test('capacity: stored, round-tripped, validated, and on its own enough to keep an entry', () => {
+  const map = withSpecs({}, 'bmw-x7', { ...emptySpecs, capacity: 80 });
+  assert.deepEqual(parseSpecs(serializeSpecs(map)), { 'bmw-x7': { ...emptySpecs, options: [], capacity: 80 } });
+  assert.equal(isEmptySpecs({ ...emptySpecs, capacity: 80 }), false);
+  assert.equal(sameSpecs({ ...emptySpecs, capacity: 80 }, { ...emptySpecs, capacity: 80.0 }), true);
+  assert.equal(sameSpecs({ ...emptySpecs, capacity: 80 }, emptySpecs), false);
+  for (const bad of [0, -5, 301, NaN, Infinity, '80', null, undefined, true]) {
+    assert.equal(normalizeSpecs({ capacity: bad }).capacity, null, String(bad));
+  }
+  assert.equal(normalizeSpecs({ capacity: 42.46 }).capacity, 42.5);
+  assert.equal(parseCapacityText(''), null);
+  assert.equal(parseCapacityText('  '), null);
+  assert.equal(parseCapacityText('80'), 80);
+  assert.equal(parseCapacityText('42,5'), 42.5);
+  for (const bad of ['abc', '0', '-1', '1e3', '999', '80 L']) assert.equal(parseCapacityText(bad), 'invalid', bad);
+  assert.equal(capacityText(null), '');
+  assert.equal(capacityText(80), '80');
+  // Never defaulted: every vehicle starts without a capacity.
+  for (const id of VEHICLE_IDS) assert.equal(specsFor({}, id).capacity, null);
 });

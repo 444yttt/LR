@@ -45,7 +45,7 @@ async function mount(routes: Route[]) {
   return view;
 }
 const seed = (vehicles: Parameters<typeof serializeSpecs>[0]) => AsyncStorage.setItem(SPECS_STORAGE_KEY, serializeSpecs(vehicles));
-const fake = { grade: 'Test Trim', engine: 'V6', year: '2020', options: ['Test Audio', 'Test Wheels'] };
+const fake = { grade: 'Test Trim', engine: 'V6', year: '2020', options: ['Test Audio', 'Test Wheels'], capacity: null };
 
 beforeEach(async () => { await AsyncStorage.clear(); });
 
@@ -122,7 +122,7 @@ test('edit flow (Ferrari, no live feed): empty form, type, add an option, Save i
   expect(within(screen.getByTestId('vehicle-options')).getByText('Test Audio')).toBeTruthy();
   expect(screen.getByTestId('card-name-ferrari-296').props.children).toBe('Ferrari 296 Test Trim V6');
   expect(parseSpecs(await AsyncStorage.getItem(SPECS_STORAGE_KEY))).toEqual({
-    'ferrari-296': { grade: 'Test Trim', engine: 'V6', year: '2020', options: ['Test Audio'] },
+    'ferrari-296': { grade: 'Test Trim', engine: 'V6', year: '2020', options: ['Test Audio'], capacity: null },
   });
 });
 
