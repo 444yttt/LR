@@ -75,7 +75,7 @@ test('detail with specs: composed name, year on the model line, options list; th
 
 test('a composed name too long for the card keeps the base name on the card; the detail shows it in full', async () => {
   await seed({ 'bmw-x7': { ...fake, grade: 'Test Trim With Long Name', options: [] } });
-  await mount([{ name: 'vehicle', vehicle: 2 }]);
+  await mount([{ name: 'vehicle', vehicle: 1 }]);
   expect(screen.getByTestId('card-name-bmw-x7').props.children).toBe('BMW X7');
   expect(screen.getByTestId('vehicle-title').props.children).toBe('BMW X7 Test Trim With Long Name V6');
   // Too long for one line even at 22pt: two lines, model line moved down below them.
@@ -91,7 +91,7 @@ test('corrupt storage is treated as no specs', async () => {
 });
 
 test('edit flow (Ferrari, no live feed): empty form, type, add an option, Save in the trailing slot, back on the detail', async () => {
-  await mount([{ name: 'vehicle', vehicle: 1 }]);
+  await mount([{ name: 'vehicle', vehicle: 3 }]);
   act(() => { fireEvent.press(screen.getByLabelText('Vehicle specs')); });
   await settle();
   const headers = screen.getAllByRole('header');
@@ -128,7 +128,7 @@ test('edit flow (Ferrari, no live feed): empty form, type, add an option, Save i
 
 test('edit screen pre-fills only what was stored; removing an option and Back without Save keeps the stored specs', async () => {
   await seed({ 'bmw-x7': fake });
-  await mount([{ name: 'vehicle', vehicle: 2 }, { name: 'specs', vehicle: 2 }]);
+  await mount([{ name: 'vehicle', vehicle: 1 }, { name: 'specs', vehicle: 1 }]);
   expect(screen.getByLabelText('Grade / trim').props.value).toBe('Test Trim');
   expect(screen.getByLabelText('Option 2').props.value).toBe('Test Wheels');
   act(() => { fireEvent.press(screen.getByLabelText('Remove Test Wheels')); });

@@ -3,6 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { VEHICLES } from '../src/garageModel.ts';
+import { VEHICLE_IDS } from '../src/vehicleSpecs.ts';
 import {
   SPECS_VERSION, cardName, cardNameWidth, displayName, emptySpecs, isEmptySpecs, modelLine, normalizeSpecs, parseSpecs,
   serializeSpecs, specLimits, specsFor, textWidth, titleLayout, titleWidth, headerLimit, withSpecs, type VehicleSpecs,
@@ -78,12 +79,18 @@ test('model line: the existing model, plus " · year" only when a year was enter
   assert.equal(modelLine(model, emptySpecs), model);
   assert.equal(modelLine(model, { ...emptySpecs, year: '2020' }), model + ' · 2020');
   assert.equal(modelLine(model, { ...fake, year: '  ' }), model);
+  // A model year reported by the vehicle's gateway row shows only when the owner entered none; the owner's wins.
+  assert.equal(modelLine(model, emptySpecs, 2026), model + ' · 2026');
+  assert.equal(modelLine(model, { ...emptySpecs, year: '2020' }, 2026), model + ' · 2020');
+  assert.equal(modelLine(model, emptySpecs, null), model);
 });
 
 test('Garage card name: composed when it fits beside the chevron, otherwise the base name', () => {
   for (const vehicle of VEHICLES) {
     assert.equal(cardName(vehicle, emptySpecs), vehicle.name);
-    assert.equal(cardName(vehicle, fake), vehicle.name + ' Test Trim V6');
+    // "Audi S e-tron GT Test Trim V6" is wider than the card line at the Dynamic Type cap: the card keeps the base name.
+    const fits = vehicle.id !== 'audi-s-etron-gt';
+    assert.equal(cardName(vehicle, fake), fits ? vehicle.name + ' Test Trim V6' : vehicle.name, vehicle.id);
     assert.ok(textWidth(cardName(vehicle, fake), 20 * 1.15) <= cardNameWidth);
     const long = { ...fake, grade: 'Test Trim With Long Name', engine: 'V6 Test Hybrid' };
     assert.equal(cardName(vehicle, long), vehicle.name);
@@ -109,4 +116,11 @@ test('detail header: 31pt for names that fit; long names step down, then wrap to
       assert.ok(layout.statusTop + 10 * 1.21 * 1.15 <= headerLimit, String(layout.statusTop));
     }
   }
+});
+
+test('specs allow-list is exactly the VEHICLES ids, Audi included; empty specs stay empty for every vehicle', () => {
+  assert.deepEqual(VEHICLE_IDS, VEHICLES.map(vehicle => vehicle.id));
+  const raw = doc({ 'audi-s-etron-gt': { grade: 'Test Trim' }, 'audi-s-etron': { grade: 'x' } });
+  assert.deepEqual(Object.keys(parseSpecs(raw)), ['audi-s-etron-gt']);
+  for (const vehicle of VEHICLES) assert.equal(specsFor(parseSpecs(null), vehicle.id), emptySpecs);
 });

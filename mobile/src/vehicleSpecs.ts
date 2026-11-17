@@ -23,7 +23,8 @@ export const specLimits = { grade: 30, engine: 24, year: 12, option: 60, options
 
 export const emptySpecs: VehicleSpecs = Object.freeze({ grade: '', engine: '', year: '', options: Object.freeze([]) as unknown as string[] });
 
-const VEHICLE_IDS: readonly VehicleId[] = ['range-rover', 'ferrari-296', 'bmw-x7'];
+/** Every vehicle that can hold specs (the VEHICLES ids; test/vehicleSpecs.test.ts keeps them in step). */
+export const VEHICLE_IDS: readonly VehicleId[] = ['range-rover', 'bmw-x7', 'audi-s-etron-gt', 'ferrari-296'];
 
 /** Trims, collapses inner whitespace (incl. newlines) to one space, and caps the length. Non-strings become ''. */
 export function cleanText(value: unknown, max: number): string {
@@ -101,9 +102,12 @@ const join = (parts: string[]) => parts.map(part => part.trim()).filter(Boolean)
 /** Base name + whatever of grade and engine was entered: "Name Grade Engine", or just the base name. */
 export const displayName = (base: string, specs: VehicleSpecs) => join([base, specs.grade, specs.engine]);
 
-/** Existing model line, plus the model year when one was entered: "Model · Year". */
-export const modelLine = (model: string, specs: VehicleSpecs) => {
-  const year = specs.year.trim();
+/**
+ * Existing model line, plus a model year: the one the owner entered, else the one the vehicle's data source reports
+ * (`reportedYear`, display only; never written into the specs). "Model · Year".
+ */
+export const modelLine = (model: string, specs: VehicleSpecs, reportedYear: number | null = null) => {
+  const year = specs.year.trim() || (reportedYear !== null ? String(reportedYear) : '');
   return year ? model + ' · ' + year : model;
 };
 

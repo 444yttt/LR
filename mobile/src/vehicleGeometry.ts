@@ -1,11 +1,12 @@
 // Vehicle stage geometry (Final / Light Floor), in design points. Pure TS so tests can check it against the PNGs.
 
+// Index = VEHICLES index: Range Rover, BMW X7, Audi S e-tron GT, Ferrari 296.
 /** Pixel size of each vehicle PNG (asserted against the files in test/vehicleAssets.test.ts). */
-export const carPixels: readonly (readonly [number, number])[] = [[1570, 618], [1779, 542], [1629, 641]];
+export const carPixels: readonly (readonly [number, number])[] = [[1570, 618], [1629, 641], [1760, 558], [1779, 542]];
 /** Intrinsic width / height of each vehicle PNG. */
 export const carAspect = carPixels.map(([w, h]) => w / h);
 /** Car width on the detail stage (pt). The card stage draws every car at `cardScale` of it. */
-export const detailWidth = [296, 286, 296];
+export const detailWidth = [296, 296, 294, 286];
 export const cardScale = 0.72;
 
 export type Box = { x: number; y: number; w: number; h: number };
@@ -14,7 +15,8 @@ export type Box = { x: number; y: number; w: number; h: number };
 export const stageBox: Box[] = [{ x: 0, y: 0, w: 325, h: 121 }, { x: 17, y: 208, w: 356, h: 204 }];
 /** Garage card stage origin inside a card at (16, cardY). */
 export const cardStageOffset = { x: 18, y: 70 };
-export const cardY = [156, 395, 634];
+/** Card tops on the Garage canvas: the Figma 239pt pitch, continued for the fourth card (safeArea.canvases.garage). */
+export const cardY = [156, 395, 634, 873];
 export const floors: Box[] = [
   { x: 16.5, y: 99.04, w: 292, h: 27 },
   { x: 9, y: 128.12, w: 338, h: 56 },

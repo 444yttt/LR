@@ -3,6 +3,7 @@ import { Keyboard, KeyboardAvoidingView, Platform, RefreshControl, StyleSheet, T
 import Animated, { interpolate, useAnimatedScrollHandler, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import type { GarageData } from '../useGarage';
 import { vehicleFeeds, type Feed, type GarageInput } from '../garageModel.ts';
+import type { VehicleSnapshots } from '../gatewayVehicles.ts';
 import { liveRefreshView } from '../liveRefresh.ts';
 import { PressScale, Reveal, haptics } from './motion';
 import { useEntry, useNav } from './stack';
@@ -12,6 +13,8 @@ import { At, FontCapProvider, Label, ink, medium, mute, page, place, regular, ru
 
 export type Data = Pick<GarageData, 'snapshot' | 'phase' | 'refresh' | 'refreshNow' | 'liveRefresh' | 'signIn' | 'signOut' | 'notificationFailed' | 'discoveryFailed'
   | 'lastSyncedAt' | 'retryDiscovery' | 'hasSession' | 'canSignIn'> & {
+  /** Gateway report per app vehicle. Without it, `snapshot` is the Range Rover's and the others have none yet. */
+  snapshots?: VehicleSnapshots;
   /** Synthetic per-vehicle feeds. Set only by the demo/preview entry point (src/demo); production leaves it undefined. */
   demo?: readonly Feed[] | null;
 };
@@ -27,7 +30,7 @@ export const modelInput = (data: Data): GarageInput => ({
   phase: data.phase, snapshot: data.snapshot, hasSession: data.hasSession, discoveryFailed: data.discoveryFailed, lastSyncedAt: data.lastSyncedAt,
 });
 /** Feeds for every vehicle (see garageModel.vehicleFeeds): null means "no data source", never sample values. */
-export const feedsOf = (data: Data) => vehicleFeeds(modelInput(data), data.demo ?? null);
+export const feedsOf = (data: Data) => vehicleFeeds(modelInput(data), data.demo ?? null, data.snapshots);
 export function useFeed(vehicle: number): Feed | null {
   return feedsOf(useData())[vehicle] ?? null;
 }
@@ -39,6 +42,9 @@ export function useFeed(vehicle: number): Feed | null {
 export function usePullToRefresh() {
   const data = useData();
   const { insets } = useSafeFrame();
+  // A pull on a vehicle's own screens updates that vehicle; on the Garage it asks for the Range Rover's live read.
+  const route = useEntry()?.route;
+  const vehicle = route && 'vehicle' in route ? route.vehicle : undefined;
   const [pulling, setPulling] = useState<number | null>(null);
   const live = data.liveRefresh;
   useEffect(() => {
@@ -55,7 +61,7 @@ export function usePullToRefresh() {
   return <RefreshControl tintColor={mute} progressViewOffset={insets.top} refreshing={pulling !== null} onRefresh={() => {
     haptics.soft();
     setPulling(Date.now());
-    void data.refreshNow();
+    void data.refreshNow(vehicle);
   }} />;
 }
 

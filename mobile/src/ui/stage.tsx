@@ -13,8 +13,9 @@ export { cardStageOffset, cardY } from '../vehicleGeometry.ts';
 /** Side profiles, car facing left, tightly cropped to the car (tyre contact line = bottom edge). See assets/vehicles/ATTRIBUTION.md. */
 export const carImages = [
   require('../../assets/vehicles/range-rover-l460.png'),
-  require('../../assets/vehicles/ferrari-296.png'),
   require('../../assets/vehicles/bmw-x7.png'),
+  require('../../assets/vehicles/audi-s-etron-gt.png'),
+  require('../../assets/vehicles/ferrari-296.png'),
 ];
 
 /** Makes gradient/filter ids unique per layer: the Figma exports reuse ids, which collide when several stages share a document. */
@@ -22,7 +23,12 @@ function scoped(xml: string, key: string): string {
   return xml.replace(/id="([^"]+)"/g, (_, id) => `id="${id}-${key}"`).replace(/url\(#([^)]+)\)/g, (_, id) => `url(#${id}-${key})`);
 }
 const floorXml = floorSvg.map((xml, mode) => scoped(xml, 'floor' + mode));
-const shadowXml = shadowSvg.map((list, mode) => list.map((xml, index) => scoped(xml, `shadow${mode}${index}`)));
+/**
+ * Contact-shadow SVG per VEHICLES index. The Figma exports are [Range Rover, Ferrari, BMW]; the S e-tron GT reuses the
+ * BMW ellipse (each layer is stretched to its computed box in vehicleGeometry.shadows, so only the blur profile carries over).
+ */
+const shadowSource = [0, 2, 2, 1];
+const shadowXml = shadowSvg.map((list, mode) => shadowSource.map((source, index) => scoped(list[source], `shadow${mode}${index}`)));
 
 /**
  * Card ↔ hero handoff window, in hero progress. The hero and the card's own stage are drawn by different views

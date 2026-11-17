@@ -26,7 +26,7 @@ export function VehicleScreen({ entry, vehicle }: { entry: Entry; vehicle: numbe
   const now = useNow();
   const nav = useNav();
   const info = VEHICLES[vehicle];
-  // Only a vehicle with a feed (production: the Range Rover) shows values; the others keep their offline copy.
+  // Only a vehicle with a feed (production: the gateway's vehicles) shows values; the others keep their offline copy.
   const feed = useFeed(vehicle);
   const connection = feed ? connectionState(feed, now, vehicle) : null;
   const loading = connection?.loading ?? false;
@@ -64,7 +64,7 @@ export function VehicleScreen({ entry, vehicle }: { entry: Entry; vehicle: numbe
         {/* A long composed name steps down in size, then wraps to two lines; the lines below move with it (titleLayout). */}
         <Label testID="vehicle-title" accessibilityRole="header" numberOfLines={title.lines} adjustsFontSizeToFit minimumFontScale={0.75}
           style={typeStyle(px, title.size, semibold, ink, place(px, 22, title.top, titleWidth))}>{name}</Label>
-        <At px={px} value={modelLine(info.model, specs)} x={23} y={title.modelTop} size={12} color={mute} width={340} />
+        <At px={px} value={modelLine(info.model, specs, feed?.snapshot?.modelYear ?? null)} x={23} y={title.modelTop} size={12} color={mute} width={340} />
         <Pressable accessibilityRole="button" accessibilityLabel={'Connection: ' + status} accessibilityHint="Opens connection settings"
           hitSlop={10} onPress={() => nav.push({ name: 'connection', vehicle })} style={place(px, 23, title.statusTop)}>
           <Label style={typeStyle(px, 10, medium, mute)}>{status.toUpperCase()}</Label>
@@ -76,13 +76,14 @@ export function VehicleScreen({ entry, vehicle }: { entry: Entry; vehicle: numbe
         <View style={[place(px, 174, 21, 1, 125), { backgroundColor: rule }]} />
         <View style={[place(px, 14, 94, 328, 1), { backgroundColor: rule }]} />
         <At px={px} value="RANGE" x={14} y={22} size={10} font={medium} color={mute} />
-        <At px={px} value="FUEL" x={188} y={22} size={10} font={medium} color={mute} />
+        {/* Fuel, or the drive battery's charge for a car that reports one and no fuel level (EV). */}
+        <At px={px} value={values.level.label.toUpperCase()} x={188} y={22} size={10} font={medium} color={mute} />
         <At px={px} value="LAST DRIVE" x={14} y={108} size={10} font={medium} color={mute} />
         <At px={px} value="IDLE" x={188} y={108} size={10} font={medium} color={mute} />
         {/* Values breathe while the vehicle is being read; new values then glide in through CountUp. */}
         <UpdatingPulse vehicle={vehicle} style={StyleSheet.absoluteFill}>
           <Metric px={px} x={14} y={45} loading={loading} value={values.rangeKm} suffix=" km" empty="— km" style={metric} />
-          <Metric px={px} x={188} y={45} loading={loading} value={values.fuelPercent} suffix=" %" empty="— %" style={metric} />
+          <Metric px={px} x={188} y={45} loading={loading} value={values.level.percent} suffix=" %" empty="— %" style={metric} />
           {loading ? <Skeleton width={px(96)} height={px(13)} radius={px(5)} style={place(px, 14, 131)} />
             : <At px={px} value={values.lastDrive ?? '—'} x={14} y={128} size={15} font={semibold} />}
           {loading ? <Skeleton width={px(56)} height={px(13)} radius={px(5)} style={place(px, 188, 131)} />

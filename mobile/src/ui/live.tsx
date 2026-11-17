@@ -10,17 +10,23 @@ import {
 } from '../liveRefresh.ts';
 import { PressScale, ease, haptics, useMotion } from './motion';
 import { useData, useFeed } from './parts';
+import { VEHICLES } from '../garageModel.ts';
+import { JLR_VEHICLE } from '../gatewayVehicles.ts';
 import { Label, ink, medium, mute, typeStyle, white, type Px } from './theme';
 
 /**
  * "Update now" for one vehicle, or null when the vehicle has no signed-in feed. Production: the Range Rover's live
- * gateway state. Demo: the fixture's synthetic state (the action does nothing there).
+ * JLR read and its state (rate limit included); the gateway's other vehicles re-read GET /v1/vehicles, which has no
+ * live-read state of its own (the button shows the shared "reading" state instead). Demo: the fixture's synthetic
+ * state (the action does nothing there).
  */
 export function useLiveRefresh(vehicle: number): { live: LiveRefresh; run: () => Promise<void> } | null {
   const data = useData();
   const feed = useFeed(vehicle);
   if (!feed?.hasSession) return null;
-  return { live: feed.demo ? feed.liveRefresh ?? initialLiveRefresh : data.liveRefresh, run: data.refreshNow };
+  if (feed.demo) return { live: feed.liveRefresh ?? initialLiveRefresh, run: () => data.refreshNow(vehicle) };
+  const jlr = VEHICLES[vehicle]?.id === JLR_VEHICLE;
+  return { live: jlr ? data.liveRefresh : initialLiveRefresh, run: () => data.refreshNow(vehicle) };
 }
 
 /** Device time that re-renders exactly when the countdown minute or the view state changes. */

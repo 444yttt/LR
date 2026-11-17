@@ -40,6 +40,12 @@ const data: Data = {
   snapshot: parseSnapshot({ status: 'fresh', fetchedAt: ago(4), lastDriveVerified: true, lastDriveAt: ago(120), rangeKm: 500, fuelPercent: 60, health: 'good', trips: [ago(120)] }),
   refresh: async () => {}, refreshNow: async () => {}, liveRefresh: { state: 'idle', retryAt: null, at: null }, signIn: async () => {}, signOut: async () => {}, retryDiscovery: () => {},
 };
+// #19's synthetic X7 / S e-tron GT rows as the gateway sends them.
+data.snapshots = {
+  'range-rover': data.snapshot!,
+  'bmw-x7': parseSnapshot({ status: 'fresh', fetchedAt: ago(22), lastDriveVerified: true, lastDriveAt: ago(2 * 1440), rangeKm: 645, fuelPercent: 73, socPercent: null, modelYear: 2026, health: 'good', trips: [ago(2 * 1440)] }),
+  'audi-s-etron-gt': parseSnapshot({ status: 'fresh', fetchedAt: ago(34), lastDriveVerified: true, lastDriveAt: ago(4 * 1440), rangeKm: 329, electricRangeKm: 329, fuelPercent: null, socPercent: 68, modelYear: 2026, health: 'good', trips: [ago(4 * 1440)] }),
+};
 function Jump({ routes }: { routes: Route[] }) {
   const nav = useNav();
   useEffect(() => { nav.reset(routes); }, []);
@@ -55,15 +61,22 @@ beforeEach(() => { mockReduced = true; });
 
 const screens: { route: Route; back: string; trailing?: string }[] = [
   { route: { name: 'vehicle', vehicle: 0 }, back: 'Back to Garage', trailing: 'Update now' },
-  { route: { name: 'vehicle', vehicle: 1 }, back: 'Back to Garage' },
+  // BMW X7 and Audi S e-tron GT are connected: same slots and the same Update now as the Range Rover.
+  { route: { name: 'vehicle', vehicle: 1 }, back: 'Back to Garage', trailing: 'Update now' },
+  { route: { name: 'vehicle', vehicle: 2 }, back: 'Back to Garage', trailing: 'Update now' },
+  // Ferrari 296: not connected, nothing to update.
+  { route: { name: 'vehicle', vehicle: 3 }, back: 'Back to Garage' },
+  { route: { name: 'drives', vehicle: 2 }, back: 'Back' },
   { route: { name: 'drives', vehicle: 0 }, back: 'Back' },
   { route: { name: 'status', vehicle: 0 }, back: 'Back' },
   { route: { name: 'connection', vehicle: 0 }, back: 'Back', trailing: 'Update now' },
-  { route: { name: 'connection', vehicle: 2 }, back: 'Back' },
+  { route: { name: 'connection', vehicle: 2 }, back: 'Back', trailing: 'Update now' },
+  { route: { name: 'connection', vehicle: 3 }, back: 'Back' },
   { route: { name: 'notifications' }, back: 'Back' },
   // The specs editor's Save shares the trailing slot with "Update now".
   { route: { name: 'specs', vehicle: 0 }, back: 'Back', trailing: 'Save' },
   { route: { name: 'specs', vehicle: 1 }, back: 'Back', trailing: 'Save' },
+  { route: { name: 'specs', vehicle: 2 }, back: 'Back', trailing: 'Save' },
 ];
 
 test.each(screens)('$route.name $route.vehicle: back and trailing actions sit in the fixed NavBar slots, outside the scroll view', ({ route, back, trailing }) => {
@@ -124,8 +137,8 @@ for (const reduced of [false, true]) {
   describe(reduced ? 'Reduce Motion' : 'full motion', () => {
     beforeEach(() => { mockReduced = reduced; });
 
-    test('swipe down past the threshold closes the detail back to the Garage', () => {
-      mount([{ name: 'vehicle', vehicle: 0 }]);
+    test.each([0, 1, 2, 3])('swipe down past the threshold closes vehicle %i\'s detail back to the Garage', vehicle => {
+      mount([{ name: 'vehicle', vehicle }]);
       expect(screen.getByLabelText('Back to Garage')).toBeTruthy();
       act(() => { pull(dismissMetrics(mockWindow.height).commit + 20, 200); });
       expect(screen.queryByLabelText('Back to Garage')).toBeNull();

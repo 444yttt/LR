@@ -32,8 +32,8 @@ The gateway in `cloudflare/mobile-gateway` reads the existing D1 database. Confi
 
 ## Screens
 
-- **Garage**: pull to refresh when signed in. The Range Rover status line shows `Updated N min ago` when the report is fresh. The **＋** button opens an Add vehicle sheet. It lists the data sources and says that adding vehicles is unavailable in this build.
-- **Vehicle detail**: the status line and footer open **Connection**. The status panel opens **Vehicle status**. The action row opens **Recent drives** for a vehicle with data (Range Rover) or **Connection** (Ferrari 296, BMW X7; both stay not connected / setup required, with no sample values).
+- **Garage**: four cards in this order: Range Rover, BMW X7, Audi S e-tron GT, Ferrari 296. Range Rover, BMW X7 and Audi S e-tron GT are connected through the Nostos gateway (`GET /v1/vehicles`; the X7 and S e-tron GT rows are the gateway's local records from `cloudflare/src/local-vehicles.js`, see `cloudflare/LOCAL_DATA.md`). Gateway ids map explicitly to app ids in `src/gatewayVehicles.ts` (`range-l460` → `range-rover`, `bmw-x7`, `audi-s-etron-gt`). Pull to refresh when signed in. The Range Rover status line shows `Updated N min ago` when the report is fresh. The **＋** button opens an Add vehicle sheet. It lists the data sources and says that adding vehicles is unavailable in this build.
+- **Vehicle detail**: the status line and footer open **Connection**. The status panel opens **Vehicle status**. The action row opens **Recent drives** for a vehicle with data (Range Rover, BMW X7, Audi S e-tron GT) or **Connection** (Ferrari 296, which stays not connected, with no sample values). The metric beside range is **Fuel**, or **Battery** (state of charge) for a car that reports a charge level and no fuel level (the S e-tron GT). The model line adds the gateway's model year when the owner has not entered one; it is never written into the owner's specs. **Update now** asks the collector for a live JLR read on the Range Rover only (5-minute limit); on the X7 and S e-tron GT it re-reads `GET /v1/vehicles`. Inactivity alerts look at the Range Rover only.
 - **Recent drives / Drive**: these list only verified trip end times, grouped by JST day. The gateway sends only end times. Duration, distance, and efficiency appear if the gateway later sends trip objects (`{ endedAt, startedAt, distanceKm, efficiencyLPer100Km }`). Until then they show as not reported.
 - **Connection**: shows the state (not configured, signed out, sign-in failed, not updated yet, updating, update failed, sign-in expired, JLR authorization expired, collector error, waiting, stale, connected), the last successful update, and the last check on this iPhone. It also has the retry / sign-in / refresh action and sign-out. Sign-out clears the session on the device only.
 - **Notifications**: shows the iOS permission state and has toggles for inactivity alerts (master, 7 days, 14 days). When permission is denied it links to iOS Settings.
@@ -42,7 +42,7 @@ State presentation lives in `src/garageModel.ts` and is covered by `test/garageM
 
 ## Deep links
 
-`garage-monitor://` opens the Garage. `garage-monitor://vehicle/<range-rover|ferrari-296|bmw-x7>[/status|/connection|/drives]`, `garage-monitor://drives` (Range Rover) and `garage-monitor://notifications` open those screens. `garage-monitor://auth` stays the OAuth redirect and is never routed to a screen.
+`garage-monitor://` opens the Garage. `garage-monitor://vehicle/<range-rover|bmw-x7|audi-s-etron-gt|ferrari-296>[/status|/connection|/drives|/specs]`, `garage-monitor://drives` (Range Rover) and `garage-monitor://notifications` open those screens. `garage-monitor://auth` stays the OAuth redirect and is never routed to a screen.
 
 ## Motion
 

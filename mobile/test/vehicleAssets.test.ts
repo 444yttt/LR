@@ -7,7 +7,8 @@ import { carAspect, carPixels, profiles, shadows } from '../src/vehicleGeometry.
 import { ownerSuppliedImages, vehicleCredits } from '../src/credits.ts';
 
 const dir = new URL('../assets/vehicles/', import.meta.url).pathname;
-const files = ['range-rover-l460.png', 'ferrari-296.png', 'bmw-x7.png'];
+/** Index = VEHICLES index. */
+const files = ['range-rover-l460.png', 'bmw-x7.png', 'audi-s-etron-gt.png', 'ferrari-296.png'];
 
 /** Minimal decoder for 8-bit, non-interlaced RGBA PNGs (what the asset pipeline writes). */
 function decode(path: string) {
@@ -108,4 +109,20 @@ test('every vehicle image is credited in the app or owner-supplied, and recorded
     assert.ok(record.includes(credit.source), credit.file + ' source');
     assert.ok(record.includes(credit.author), credit.file + ' author');
   }
+});
+
+test('one image, geometry entry and card per vehicle, in VEHICLES order; four cards on the Figma pitch', async () => {
+  const { VEHICLES } = await import('../src/garageModel.ts');
+  const { cardY } = await import('../src/vehicleGeometry.ts');
+  const { canvases } = await import('../src/ui/safeArea.ts');
+  assert.equal(files.length, VEHICLES.length);
+  for (const list of [carPixels, profiles[0], profiles[1], shadows[0], shadows[1], cardY]) assert.equal(list.length, VEHICLES.length);
+  const stage = readFileSync(new URL('../src/ui/stage.tsx', import.meta.url), 'utf8');
+  const required = [...stage.matchAll(/require\('\.\.\/\.\.\/assets\/vehicles\/([^']+)'\)/g)].map(match => match[1]);
+  assert.deepEqual(required, files);
+  assert.ok(stage.includes('const shadowSource = [0, 2, 2, 1];'));
+  // Cards keep the 239pt pitch; the last card plus the Figma's 81pt tail sets the Garage canvas height.
+  cardY.forEach((y, i) => assert.equal(y, 156 + i * 239));
+  assert.equal(canvases.garage.contentBottom, cardY[cardY.length - 1] + 225);
+  assert.equal(canvases.garage.height - canvases.garage.contentBottom, 81);
 });

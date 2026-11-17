@@ -45,7 +45,8 @@ export const fontScaleCap = { canvas: 1.15, flow: 1.6 } as const;
 
 /** Canvas frames (design pt): frame height and bottom of the last content block. */
 export const canvases = {
-  garage: { height: 940, contentBottom: 859 },
+  /** Four cards (vehicleGeometry.cardY): the last card ends at 873 + 225; the Figma 81pt tail below it is kept. */
+  garage: { height: 1179, contentBottom: 1098 },
   /** Vehicle detail without an options list (see vehicleLayout). */
   vehicle: { height: 997, contentBottom: 943 },
   subScreen: { minHeight: 920, titleTop: 105, back: 45, paddingBottom: 56 },

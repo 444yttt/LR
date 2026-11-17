@@ -13,8 +13,9 @@ import {
   saveSession, sessionFromToken, sessionWasEstablished,
   type PersistedSession, type SessionStore,
 } from './session';
-import { parseSnapshot, type Snapshot } from './telemetry';
-import type { Phase } from './garageModel.ts';
+import { parseSnapshot } from './telemetry';
+import { JLR_VEHICLE, readVehicles, requestVehicles, type VehicleSnapshots } from './gatewayVehicles.ts';
+import { VEHICLES, type Phase } from './garageModel.ts';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -36,6 +37,8 @@ function httpsUrl(input: string | undefined): string | null {
       ? value.toString().replace(/\/$/, '') : null;
   } catch { return null; }
 }
+
+const noSnapshots: VehicleSnapshots = Object.freeze({});
 
 type MemorySession = { token: string; expiresAt: number; refreshToken: string | null };
 
@@ -65,7 +68,9 @@ export function useGarage() {
     usePKCE: true,
     extraParams: resource ? { resource } : undefined,
   }, discovery);
-  const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
+  /** Latest gateway report per app vehicle (GET /v1/vehicles); the Range Rover's is also exposed as `snapshot`. */
+  const [snapshots, setSnapshots] = useState<VehicleSnapshots>(noSnapshots);
+  const snapshot = snapshots[JLR_VEHICLE] ?? null;
   const [phase, setPhase] = useState<Phase>(configured ? 'loading' : 'unconfigured');
   const [notificationFailed, setNotificationFailed] = useState(false);
   const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
@@ -110,7 +115,7 @@ export function useGarage() {
     live({ type: 'reset' });
     session.current = null;
     pendingRefresh.current = null;
-    setSnapshot(null);
+    setSnapshots(noSnapshots);
     setLastSyncedAt(null);
     const nextPhase = phaseAfterRefreshFailure(established.current);
     established.current = false;
@@ -155,10 +160,13 @@ export function useGarage() {
     let timedOut = false;
     const timeout = setTimeout(() => { timedOut = true; controller.abort(); }, 12000);
     try {
-      const response = await fetch(api + '/v1/range-rover', {
+      const get = (path: string) => fetch(api + path, {
         headers: { Authorization: 'Bearer ' + credentials.token, Accept: 'application/json' },
         signal: controller.signal, redirect: 'error',
       });
+      // GET /v1/vehicles (Range Rover + BMW X7 + Audi S e-tron GT); a gateway that predates it answers 404, and then
+      // only the Range Rover is read (the others stay "Not updated yet") until the gateway is redeployed.
+      const { response, legacy } = await requestVehicles(get);
       if (current.current !== controller || controller.signal.aborted) return;
       if (response.status === 401) {
         const refreshToken = session.current?.refreshToken ?? pendingRefresh.current;
@@ -171,9 +179,10 @@ export function useGarage() {
         return;
       }
       if (!response.ok) throw new Error('Refresh failed');
-      const next = parseSnapshot(await response.json());
+      const body: unknown = await response.json();
+      const next = readVehicles(body, legacy);
       if (current.current !== controller || controller.signal.aborted) return;
-      setSnapshot(next);
+      setSnapshots(next);
       setLastSyncedAt(Date.now());
       setPhase('ready');
       authRetried.current = false;
@@ -181,7 +190,9 @@ export function useGarage() {
         established.current = true;
         void markSessionEstablished(secureStore).catch(() => { /* next successful fetch retries */ });
       }
-      notifyIfDue(next).then(() => setNotificationFailed(false), () => setNotificationFailed(true));
+      // Inactivity alerts are for the Range Rover only; the other vehicles never schedule one.
+      const rover = next[JLR_VEHICLE];
+      if (rover) notifyIfDue(rover).then(() => setNotificationFailed(false), () => setNotificationFailed(true));
     } catch {
       if (current.current === controller && (timedOut || !controller.signal.aborted)) setPhase('failed');
     } finally {
@@ -246,7 +257,7 @@ export function useGarage() {
         if (outcome !== 'success') throw new Error('Refresh failed');
         const next = parseSnapshot(await response.json());
         if (stale()) return;
-        setSnapshot(next);
+        setSnapshots(previous => ({ ...previous, [JLR_VEHICLE]: next }));
         setLastSyncedAt(Date.now());
         setPhase('ready');
         authRetried.current = false;
@@ -271,7 +282,15 @@ export function useGarage() {
     // Rate limited: the vehicle was read recently, so show what the gateway already stored.
     if (fallback && started === epoch.current) await refresh();
   }, [armRefresh, expire, live, refresh]);
-  const refreshNow = useCallback(() => requestLive(false), [requestLive]);
+  /**
+   * "Update now" for one vehicle (VEHICLES index; default the Range Rover). Only the Range Rover has a live vehicle
+   * read (JLR, through the collector). The gateway's other vehicles are re-read with the plain GET /v1/vehicles, which
+   * never reaches the collector or the JLR token.
+   */
+  const refreshNow = useCallback((vehicle?: number) => {
+    const id = vehicle === undefined ? JLR_VEHICLE : VEHICLES[vehicle]?.id;
+    return id === JLR_VEHICLE ? requestLive(false) : refresh();
+  }, [requestLive, refresh]);
 
   const renew = useCallback(async (refreshToken: string) => {
     if (!discovery || renewing.current) return;
@@ -382,7 +401,7 @@ export function useGarage() {
     live({ type: 'reset' });
     session.current = null;
     pendingRefresh.current = null;
-    setSnapshot(null);
+    setSnapshots(noSnapshots);
     setLastSyncedAt(null);
     setPhase(configured ? 'signedOut' : 'unconfigured');
     try { await clearSession(secureStore); } catch { /* nothing else to clear */ }
@@ -399,7 +418,7 @@ export function useGarage() {
   }, [refresh]);
 
   return {
-    snapshot, phase, refresh, refreshNow, liveRefresh, signIn, signOut, notificationFailed, discoveryFailed, lastSyncedAt,
+    snapshot, snapshots, phase, refresh, refreshNow, liveRefresh, signIn, signOut, notificationFailed, discoveryFailed, lastSyncedAt,
     retryDiscovery: () => setDiscoveryAttempt(value => value + 1),
     hasSession: session.current !== null,
     canSignIn: Boolean(discovery && request),

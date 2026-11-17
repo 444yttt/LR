@@ -4,6 +4,11 @@ export type Snapshot = {
   lastDriveVerified: boolean;
   rangeKm: number | null;
   fuelPercent: number | null;
+  /** EV values (`/v1/vehicles` only; null when not reported, e.g. for a combustion car). */
+  electricRangeKm: number | null;
+  socPercent: number | null;
+  /** Model year from the gateway row (never from, or written to, the owner's specs). */
+  modelYear: number | null;
   health: 'good' | 'attention-required' | 'service-required' | null;
   status: 'fresh' | 'stale' | 'error' | 'pending' | 'reauthorize';
   trips: Drive[] | null;
@@ -50,6 +55,9 @@ export function parseSnapshot(payload: unknown): Snapshot {
     lastDriveVerified: row.lastDriveVerified === true && lastDriveAt !== null,
     rangeKm: numberIn(row.rangeKm, 2000),
     fuelPercent: numberIn(row.fuelPercent, 100),
+    electricRangeKm: numberIn(row.electricRangeKm, 2000),
+    socPercent: numberIn(row.socPercent, 100),
+    modelYear: typeof row.modelYear === 'number' && Number.isInteger(row.modelYear) && row.modelYear >= 1900 && row.modelYear <= 2100 ? row.modelYear : null,
     health: health === 'good' || health === 'attention-required' || health === 'service-required' ? health : null,
     trips: Array.isArray(row.trips) ? parseDrives(row.trips) : null,
   };
