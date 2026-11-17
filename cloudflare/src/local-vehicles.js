@@ -55,7 +55,8 @@ const iso = (ms) => new Date(ms).toISOString();
  * Create rows matching the exact shape of the existing GET /api/vehicles
  * SELECT in worker.js. No custom mock fields appear in the HTTP payload.
  *
- * source='local' is correct provenance, NOT a claim of BMW/Audi OEM access.
+ * connection_status='connected' makes the app treat this fixture as connected.
+ * source='local' is correct internal provenance, NOT a claim of BMW/Audi OEM access.
  * last_drive_verified=0 avoids treating fictional trips as confirmed evidence.
  * These records must NEVER be used as backend notification inputs.
  */
@@ -75,6 +76,7 @@ export function localVehicleRows(at = Date.now()) {
       last_drive_verified: 0,
       fetched_at: observed,
       data_status: 'fresh',
+      connection_status: 'connected',
       range_km: fields.range_km,
       electric_range_km: fields.electric_range_km,
       fuel_percent: fields.fuel_percent,
@@ -94,5 +96,10 @@ export function localVehicleRows(at = Date.now()) {
 export function combineVehicleRows(oemRows, at = Date.now()) {
   if (!Array.isArray(oemRows)) throw new TypeError('Expected D1 rows');
   const existingIds = new Set(oemRows.map(v => v.id));
-  return [...oemRows, ...localVehicleRows(at).filter(v => !existingIds.has(v.id))];
+  const normalisedOemRows = oemRows.map(v => ({
+    ...v,
+    connection_status: v.enabled && v.fetched_at && v.data_status === 'fresh'
+      ? 'connected' : 'disconnected'
+  }));
+  return [...normalisedOemRows, ...localVehicleRows(at).filter(v => !existingIds.has(v.id))];
 }
