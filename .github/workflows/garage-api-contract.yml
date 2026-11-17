@@ -1,0 +1,25 @@
+name: Garage API contract tests
+
+on:
+  pull_request:
+    paths:
+      - 'cloudflare/src/**'
+      - 'cloudflare/test/**'
+      - 'package.json'
+      - '.github/workflows/garage-api-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate local vehicle API shape and connection state
+        run: npm run test:local-vehicles
