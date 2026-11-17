@@ -6,7 +6,7 @@
   "scripts": {
     "keygen": "node scripts/generate-jlr-credentials.cjs",
     "verify": "node scripts/verify-certificate.cjs",
-    "test:local-vehicles": "node --experimental-default-type=module --test cloudflare/test/local-vehicles.test.js"
+    "test:local-vehicles": "node --test cloudflare/test/local-vehicles.test.js"
   },
   "dependencies": {
     "@peculiar/x509": "^1.14.0"
