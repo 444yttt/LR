@@ -5,7 +5,9 @@ import { VEHICLES, connectionState, healthView, lastUpdateLine, metrics, offersU
 import { CountUp, PressScale, Skeleton, useProgressReveal } from '../ui/motion';
 import { ActionRow, NavBar, useFeed } from '../ui/parts';
 import { useSafeFrame } from '../ui/safe';
-import { canvases } from '../ui/safeArea';
+import { vehicleLayout, vehicleRows } from '../ui/safeArea';
+import { useSpecs } from '../ui/specs';
+import { displayName, modelLine, titleSize, titleWidth } from '../vehicleSpecs.ts';
 import { useNav, useSwipeDismiss, type Entry } from '../ui/stack';
 import { LiveStatusLine, UpdateNowButton, UpdatingPulse } from '../ui/live';
 import { HeroStage } from '../ui/stage';
@@ -40,11 +42,17 @@ export function VehicleScreen({ entry, vehicle }: { entry: Entry; vehicle: numbe
   const info1 = useProgressReveal(p, 0.4);
   const info2 = useProgressReveal(p, 0.46);
   const info3 = useProgressReveal(p, 0.5);
-  const info4 = useProgressReveal(p, 0.55);
+  const info4 = useProgressReveal(p, 0.53);
+  const info5 = useProgressReveal(p, 0.56);
+  const info6 = useProgressReveal(p, 0.6);
   const back = useProgressReveal(p, 0.36, 0);
   const metric = typeStyle(px, 25, semibold, ink);
   const safe = useSafeFrame();
-  const frame = canvases.vehicle;
+  // Owner-entered specs (on-device only): composed title, model year on the model line, options card when present.
+  const specs = useSpecs(vehicle);
+  const name = displayName(info.name, specs);
+  const size = titleSize(name);
+  const frame = vehicleLayout(specs.options.length);
   const dismiss = useSwipeDismiss(entry);
 
   return <View style={{ flex: 1 }}><GestureDetector gesture={dismiss.gesture}><Animated.ScrollView ref={dismiss.ref} testID="vehicle-scroll" style={{ flex: 1 }}
@@ -53,8 +61,10 @@ export function VehicleScreen({ entry, vehicle }: { entry: Entry; vehicle: numbe
     {/* The Figma canvas, shifted below the status bar / Dynamic Island by the same amount as the Garage canvas. */}
     <View testID="vehicle-canvas" style={{ position: 'absolute', left: 0, right: 0, top: safe.top, height: px(frame.height) }} pointerEvents="box-none">
       <Animated.View style={[place(px, 0, 0, 390, 200), header]} pointerEvents="box-none">
-        <Label accessibilityRole="header" style={typeStyle(px, 31, semibold, ink, place(px, 22, 105))}>{info.name}</Label>
-        <At px={px} value={info.model} x={23} y={145} size={12} color={mute} />
+        {/* One line; a long composed name steps down in size with its baseline kept where the 31pt title's sits. */}
+        <Label testID="vehicle-title" accessibilityRole="header" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}
+          style={typeStyle(px, size, semibold, ink, place(px, 22, 105 + (31 - size) * 1984 / 2048, titleWidth))}>{name}</Label>
+        <At px={px} value={modelLine(info.model, specs)} x={23} y={145} size={12} color={mute} width={340} />
         <Pressable accessibilityRole="button" accessibilityLabel={'Connection: ' + status} accessibilityHint="Opens connection settings"
           hitSlop={10} onPress={() => nav.push({ name: 'connection', vehicle })} style={place(px, 23, 170)}>
           <Label style={typeStyle(px, 10, medium, mute)}>{status.toUpperCase()}</Label>
@@ -90,13 +100,25 @@ export function VehicleScreen({ entry, vehicle }: { entry: Entry; vehicle: numbe
         </PressScale>
       </Animated.View>
 
-      <Animated.View style={[place(px, 0, 747, 390, 65), info3]}>
+      <Animated.View style={[place(px, 0, frame.action, 390, 65), info3]}>
         <ActionRow px={px} style={{ position: 'absolute', left: px(16), top: 0, marginTop: 0 }}
           title={feed ? 'Recent drives' : 'Connection settings'}
           onPress={() => nav.push(feed ? { name: 'drives', vehicle } : { name: 'connection', vehicle })} />
       </Animated.View>
 
-      <Animated.View style={[place(px, 16, 838, 358, 40), info4]}>
+      <Animated.View style={[place(px, 0, frame.specs, 390, 65), info4]}>
+        <ActionRow px={px} style={{ position: 'absolute', left: px(16), top: 0, marginTop: 0 }} title="Vehicle specs"
+          onPress={() => nav.push({ name: 'specs', vehicle })} />
+      </Animated.View>
+
+      {frame.options && <Animated.View testID="vehicle-options" accessible accessibilityLabel={'Options: ' + specs.options.join(', ')}
+        style={[place(px, 16, frame.options.y, 358, frame.options.height, 18), { backgroundColor: white }, info5]}>
+        <At px={px} value="OPTIONS" x={14} y={20} size={10} font={medium} color={mute} />
+        {specs.options.map((option, i) => <Label key={i} numberOfLines={1}
+          style={typeStyle(px, 14, regular, ink, place(px, 14, vehicleRows.optionsTop + i * vehicleRows.optionLine, 330))}>{option}</Label>)}
+      </Animated.View>}
+
+      <Animated.View style={[place(px, 16, frame.footer, 358, 40), info6]}>
         <View style={{ height: 1, backgroundColor: rule }} />
         <Pressable accessibilityRole="button" accessibilityHint="Opens connection settings" onPress={() => nav.push({ name: 'connection', vehicle })} hitSlop={8}>
           <View style={{ marginTop: px(13), marginLeft: px(6) }}>

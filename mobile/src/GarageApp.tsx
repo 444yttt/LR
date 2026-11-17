@@ -5,8 +5,10 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { DriveScreen, DrivesScreen } from './screens/DrivesScreen';
 import { GarageScreen } from './screens/GarageScreen';
 import { AddVehicleSheet, ConnectionScreen, NotificationsScreen, StatusScreen } from './screens/SettingsScreens';
+import { SpecsScreen } from './screens/SpecsScreen';
 import { VehicleScreen } from './screens/VehicleScreen';
 import { DataProvider, type Data } from './ui/parts';
+import { SpecsProvider } from './ui/specs';
 import { Sheet, Stack, type Entry } from './ui/stack';
 import { NowProvider, page } from './ui/theme';
 
@@ -19,6 +21,7 @@ function screen(entry: Entry): ReactNode {
     case 'drive': return <DriveScreen vehicle={route.vehicle} endedAt={route.endedAt} />;
     case 'status': return <StatusScreen vehicle={route.vehicle} />;
     case 'connection': return <ConnectionScreen vehicle={route.vehicle} />;
+    case 'specs': return <SpecsScreen vehicle={route.vehicle} />;
     case 'notifications': return <NotificationsScreen />;
   }
 }
@@ -32,12 +35,14 @@ export function GarageApp({ data, children }: { data: Data; children?: ReactNode
       <StatusBar barStyle="dark-content" />
       <NowProvider>
         <DataProvider value={data}>
+          <SpecsProvider>
           <View style={{ flex: 1, backgroundColor: page }}>
             <Stack base={<GarageScreen onAdd={() => setAdding(true)} />} render={screen}>{children}</Stack>
             <Sheet visible={adding} onClose={() => setAdding(false)}>
               <AddVehicleSheet onClose={() => setAdding(false)} />
             </Sheet>
           </View>
+          </SpecsProvider>
         </DataProvider>
       </NowProvider>
     </SafeAreaProvider>

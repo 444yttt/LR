@@ -61,6 +61,9 @@ const screens: { route: Route; back: string; trailing?: string }[] = [
   { route: { name: 'connection', vehicle: 0 }, back: 'Back', trailing: 'Update now' },
   { route: { name: 'connection', vehicle: 2 }, back: 'Back' },
   { route: { name: 'notifications' }, back: 'Back' },
+  // The specs editor's Save shares the trailing slot with "Update now".
+  { route: { name: 'specs', vehicle: 0 }, back: 'Back', trailing: 'Save' },
+  { route: { name: 'specs', vehicle: 1 }, back: 'Back', trailing: 'Save' },
 ];
 
 test.each(screens)('$route.name $route.vehicle: back and trailing actions sit in the fixed NavBar slots, outside the scroll view', ({ route, back, trailing }) => {

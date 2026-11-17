@@ -5,7 +5,9 @@ import { PressScale, Reveal, Skeleton, haptics } from '../ui/motion';
 import { feedsOf, useData, usePullToRefresh } from '../ui/parts';
 import { useSafeFrame } from '../ui/safe';
 import { canvases } from '../ui/safeArea';
+import { useSpecsStore } from '../ui/specs';
 import { useNav } from '../ui/stack';
+import { cardName, cardNameWidth, displayName, specsFor } from '../vehicleSpecs.ts';
 import { CardStage, cardStageOffset, cardStageOrigin, cardY, useCardHandoff } from '../ui/stage';
 import { At, Label, ink, medium, mute, place, regular, rule, semibold, typeStyle, useNow, usePx, white } from '../ui/theme';
 
@@ -32,6 +34,11 @@ export function GarageScreen({ onAdd }: { onAdd: () => void }) {
   const handoff = useCardHandoff(heroProgress, fromCard);
   const safe = useSafeFrame();
   const frame = canvases.garage;
+  // Owner-entered grade / engine join the card name only when the whole line fits beside the chevron; otherwise the card
+  // keeps the base name and the detail title carries the full name.
+  const { map: specs } = useSpecsStore();
+  const names = VEHICLES.map(vehicle => cardName(vehicle, specsFor(specs, vehicle.id)));
+  const fullNames = VEHICLES.map(vehicle => displayName(vehicle.name, specsFor(specs, vehicle.id)));
 
   return <View style={{ flex: 1 }}>
     <Animated.ScrollView testID="garage-scroll" style={{ flex: 1 }} {...safe.scroll} onScroll={onScroll} scrollEventThrottle={16}
@@ -46,14 +53,15 @@ export function GarageScreen({ onAdd }: { onAdd: () => void }) {
           <Label style={typeStyle(px, 27, regular, ink)}>＋</Label>
         </PressScale>
         {VEHICLES.map((vehicle, i) => <Reveal key={vehicle.id} index={i} delay={90} distance={18} style={place(px, 16, cardY[i], 358, 225)}>
-          <PressScale accessibilityRole="button" accessibilityLabel={vehicle.name + ', ' + statuses[i]} accessibilityHint="Opens vehicle details"
+          <PressScale accessibilityRole="button" accessibilityLabel={fullNames[i] + ', ' + statuses[i]} accessibilityHint="Opens vehicle details"
             scale={0.97} feedback="none"
             onPress={() => {
               haptics.open();
               nav.push({ name: 'vehicle', vehicle: i }, cardStageOrigin(px, i, scrollY, safe.top));
             }}
             style={{ width: px(358), height: px(225), borderRadius: px(19), backgroundColor: white }}>
-            <At px={px} value={vehicle.name} x={15} y={20} size={20} font={semibold} />
+            <Label testID={'card-name-' + vehicle.id} numberOfLines={1}
+              style={typeStyle(px, 20, semibold, ink, place(px, 15, 20, cardNameWidth))}>{names[i]}</Label>
             <Label style={typeStyle(px, 23, regular, mute, place(px, 325, 16))}>›</Label>
             <At px={px} value={statuses[i].toUpperCase()} x={15} y={51} size={10} font={medium} color={mute} />
             <View style={place(px, cardStageOffset.x, cardStageOffset.y, 325, 121)}>

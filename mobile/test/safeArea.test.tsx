@@ -7,7 +7,7 @@ import { GarageApp } from '../src/GarageApp';
 import type { Route } from '../src/garageModel';
 import { parseSnapshot } from '../src/telemetry';
 import type { Data } from '../src/ui/parts';
-import { bottomExtra, bottomPadding, canvases, designSafeTop, fontScaleCap, topShift } from '../src/ui/safeArea';
+import { bottomExtra, bottomPadding, canvases, designSafeTop, fontScaleCap, topShift, vehicleLayout } from '../src/ui/safeArea';
 import { useNav } from '../src/ui/stack';
 
 let mockInsets = { top: 62, bottom: 34, left: 0, right: 0 };
@@ -96,7 +96,7 @@ describe('iPhone 16 Pro insets (62 / 34)', () => {
 
   test('sub-screens (drives, status, connection, notifications): back + title shifted, bottom padding clears the home indicator', () => {
     const shift = topShift(px, 62);
-    for (const route of [{ name: 'drives', vehicle: 0 }, { name: 'status', vehicle: 0 }, { name: 'connection', vehicle: 0 }, { name: 'notifications' }] as Route[]) {
+    for (const route of [{ name: 'drives', vehicle: 0 }, { name: 'status', vehicle: 0 }, { name: 'connection', vehicle: 0 }, { name: 'notifications' }, { name: 'specs', vehicle: 1 }] as Route[]) {
       const view = mount([route]);
       // Back sits in the fixed NavBar slot, shifted by the same amount as the canvas.
       close(flat(screen.getByTestId('nav-leading')).top, shift + px(45));
@@ -107,6 +107,18 @@ describe('iPhone 16 Pro insets (62 / 34)', () => {
       expect(screen.getByRole('header').props.maxFontSizeMultiplier).toBe(fontScaleCap.flow);
       view.unmount();
     }
+  });
+
+  test('vehicle detail with an options list: the canvas grows so the footer still clears the home indicator', () => {
+    for (const count of [1, 5, 30]) {
+      const layout = vehicleLayout(count);
+      expect(layout.options!.y).toBeGreaterThanOrEqual(layout.specs + 65);
+      expect(layout.footer).toBeGreaterThan(layout.options!.y + layout.options!.height);
+      expect(layout.height - layout.contentBottom).toBe(canvases.vehicle.height - canvases.vehicle.contentBottom);
+    }
+    // Rows below the hero stage (208–412) and the metrics card only.
+    expect(vehicleLayout(0).action).toBeGreaterThan(412);
+    expect(vehicleLayout(0)).toMatchObject({ height: canvases.vehicle.height, contentBottom: canvases.vehicle.contentBottom, options: null });
   });
 
   test('+ sheet: capped below the status bar, bottom padding above the home indicator', () => {

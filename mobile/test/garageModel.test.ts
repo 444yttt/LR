@@ -121,6 +121,8 @@ test('deep links resolve to screens and never treat the OAuth redirect as a scre
   assert.deepEqual(routeFromUrl('garage-monitor://vehicle/ferrari-296/drives'), { name: 'drives', vehicle: 1 });
   assert.deepEqual(routeFromUrl('garage-monitor://drives?x=1'), { name: 'drives', vehicle: 0 });
   assert.deepEqual(stackFor({ name: 'drive', vehicle: 2, endedAt: ago(0) }).map(route => route.name), ['vehicle', 'drives', 'drive']);
+  assert.deepEqual(routeFromUrl('garage-monitor://vehicle/ferrari-296/specs'), { name: 'specs', vehicle: 1 });
+  assert.deepEqual(stackFor({ name: 'specs', vehicle: 1 }).map(route => route.name), ['vehicle', 'specs']);
   assert.deepEqual(routeFromUrl('garage-monitor:///notifications'), { name: 'notifications' });
   assert.equal(routeFromUrl('garage-monitor://auth?code=abc'), null);
   assert.equal(routeFromUrl('garage-monitor://vehicle/unknown'), null);

@@ -293,6 +293,7 @@ export type Route =
   | { name: 'drive'; vehicle: number; endedAt: string }
   | { name: 'status'; vehicle: number }
   | { name: 'connection'; vehicle: number }
+  | { name: 'specs'; vehicle: number }
   | { name: 'notifications' };
 
 /** Screens to push above the Garage for a deep link, e.g. drives → [Range Rover, Recent drives]. */
@@ -303,7 +304,8 @@ export function stackFor(route: Route): Route[] {
     case 'drives': return [{ name: 'vehicle', vehicle: route.vehicle }, route];
     case 'drive': return [{ name: 'vehicle', vehicle: route.vehicle }, { name: 'drives', vehicle: route.vehicle }, route];
     case 'status':
-    case 'connection': return [{ name: 'vehicle', vehicle: route.vehicle }, route];
+    case 'connection':
+    case 'specs': return [{ name: 'vehicle', vehicle: route.vehicle }, route];
     case 'notifications': return [{ name: 'vehicle', vehicle: 0 }, { name: 'connection', vehicle: 0 }, route];
   }
 }
@@ -312,7 +314,8 @@ export const scheme = 'garage-monitor';
 
 /**
  * garage-monitor:// deep links. `garage-monitor://auth` is the OAuth redirect and is never a screen.
- * Supported: /, /vehicle/<id>, /vehicle/<id>/status, /vehicle/<id>/connection, /vehicle/<id>/drives, /drives (Range Rover),
+ * Supported: /, /vehicle/<id>, /vehicle/<id>/status, /vehicle/<id>/connection, /vehicle/<id>/drives, /vehicle/<id>/specs,
+ * /drives (Range Rover),
  * /notifications.
  */
 export function routeFromUrl(url: string | null | undefined): Route | null {
@@ -331,6 +334,7 @@ export function routeFromUrl(url: string | null | undefined): Route | null {
     if (parts[2] === 'status') return { name: 'status', vehicle };
     if (parts[2] === 'connection') return { name: 'connection', vehicle };
     if (parts[2] === 'drives') return { name: 'drives', vehicle };
+    if (parts[2] === 'specs') return { name: 'specs', vehicle };
   }
   return null;
 }

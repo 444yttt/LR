@@ -1,5 +1,5 @@
-import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
-import { RefreshControl, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Keyboard, KeyboardAvoidingView, Platform, RefreshControl, StyleSheet, TextInput, View, type StyleProp, type ViewStyle } from 'react-native';
 import Animated, { interpolate, useAnimatedScrollHandler, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import type { GarageData } from '../useGarage';
 import { vehicleFeeds, type Feed, type GarageInput } from '../garageModel.ts';
@@ -158,20 +158,52 @@ export function NavBar({ back = 'Back', trailing, leadingStyle, trailingStyle }:
   </View>;
 }
 
+/** Form screens (SubScreen `form`): scroll the focused field above the keyboard. No-op outside a form. */
+const FormContext = createContext<{ reveal: () => void }>({ reveal: () => undefined });
+export const useForm = () => useContext(FormContext);
+
 /**
  * Pushed-screen scaffold: back chevron at (14, 45), 31pt title at y 105, 12pt caption, then flowing content
  * at the 16pt page inset. Content reveals in a short stagger after the push.
+ *
+ * `form`: the screen has text fields. No pull-to-refresh; the scroll view sits in a KeyboardAvoidingView (iOS padding),
+ * taps on buttons work while the keyboard is up (keyboardShouldPersistTaps), dragging the list dismisses the keyboard,
+ * and whenever a field gains focus or the keyboard appears the focused field is scrolled clear of the NavBar and of the
+ * keyboard. With the keyboard down, the usual bottom padding keeps the last block above the home indicator.
  */
-export function SubScreen({ title, caption, children, back, trailing }: { title: string; caption?: string; children: ReactNode; back?: string; trailing?: ReactNode }) {
+export function SubScreen({ title, caption, children, back, trailing, form = false }: {
+  title: string; caption?: string; children: ReactNode; back?: string; trailing?: ReactNode; form?: boolean;
+}) {
   const px = usePx();
   const entry = useEntry();
   const refresh = usePullToRefresh();
   const safe = useSafeFrame();
   const onScroll = useAnimatedScrollHandler(event => { if (entry) entry.scroll.value = event.contentOffset.y; });
   const frame = canvases.subScreen;
-  // Back button and title move down by the safe-area shift; the last block clears the home indicator.
-  return <FontCapProvider value={fontScaleCap.flow}><View style={{ flex: 1 }}><Animated.ScrollView testID="subscreen-scroll" style={{ flex: 1 }} {...safe.scroll} onScroll={onScroll} scrollEventThrottle={16}
-    contentContainerStyle={{ paddingBottom: safe.bottomPadding(frame.paddingBottom), minHeight: px(frame.minHeight) + safe.top }} refreshControl={refresh}>
+  const scrollRef = useRef<Animated.ScrollView>(null);
+  const navBottom = safe.top + px(navSlots.leading.y + navSlots.leading.h);
+  const reveal = useCallback(() => {
+    const field = TextInput.State.currentlyFocusedInput() as unknown as View | null;
+    const scroll = scrollRef.current as unknown as (View & { scrollTo?: (o: { y: number; animated?: boolean }) => void }) | null;
+    if (!field?.measureInWindow || !scroll?.measureInWindow) return;
+    scroll.measureInWindow((_sx, sy, _sw, sh) => field.measureInWindow((_fx, fy, _fw, fh) => {
+      const top = sy + navBottom + px(8);
+      const bottom = sy + sh - px(24);
+      const y = entry?.scroll.value ?? 0;
+      if (fy + fh > bottom) scroll.scrollTo?.({ y: y + fy + fh - bottom, animated: true });
+      else if (fy < top) scroll.scrollTo?.({ y: Math.max(0, y - (top - fy)), animated: true });
+    }));
+  }, [entry, navBottom]);
+  useEffect(() => {
+    if (!form) return;
+    // After the keyboard has settled (KeyboardAvoidingView has resized the list), bring the focused field into view.
+    const shown = Keyboard.addListener('keyboardDidShow', () => reveal());
+    return () => shown.remove();
+  }, [form, reveal]);
+  const formValue = useMemo(() => ({ reveal: () => { if (Keyboard.isVisible()) setTimeout(reveal, 60); } }), [reveal]);
+  const list = <Animated.ScrollView ref={scrollRef} testID="subscreen-scroll" style={{ flex: 1 }} {...safe.scroll} onScroll={onScroll} scrollEventThrottle={16}
+    keyboardShouldPersistTaps={form ? 'handled' : undefined} keyboardDismissMode={form ? 'interactive' : undefined}
+    contentContainerStyle={{ paddingBottom: safe.bottomPadding(frame.paddingBottom), minHeight: px(frame.minHeight) + safe.top }} refreshControl={form ? undefined : refresh}>
     <View style={{ paddingTop: px(frame.titleTop) + safe.top, paddingHorizontal: px(16) }}>
       <Reveal delay={120}>
         <Label accessibilityRole="header" style={typeStyle(px, 31, semibold, ink, { marginLeft: px(6) })}>{title}</Label>
@@ -179,8 +211,15 @@ export function SubScreen({ title, caption, children, back, trailing }: { title:
       </Reveal>
       <Reveal delay={190}>{children}</Reveal>
     </View>
-  </Animated.ScrollView>
-  <NavBar back={back} trailing={trailing} />
+  </Animated.ScrollView>;
+  // Back button and title move down by the safe-area shift; the last block clears the home indicator.
+  return <FontCapProvider value={fontScaleCap.flow}><View style={{ flex: 1 }}>
+    {form
+      ? <FormContext.Provider value={formValue}>
+        <KeyboardAvoidingView testID="subscreen-keyboard" style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>{list}</KeyboardAvoidingView>
+      </FormContext.Provider>
+      : list}
+    <NavBar back={back} trailing={trailing} />
   </View></FontCapProvider>;
 }
 
