@@ -7,9 +7,11 @@ The authenticated `GET /api/vehicles` response remains a single `{ vehicles, gen
 - `bmw-x7` — BMW X7 (2026)
 - `audi-s-etron-gt` — Audi S e-tron GT (2026)
 
+Both fixture vehicles return `connection_status: 'connected'` and `data_status: 'fresh'`, so the app uses the regular connected presentation, not an unconnected/setup screen. JLR rows also get `connection_status` computed from their real snapshot state.
+
 All numeric vehicle telemetry, odometer readings, and activity timestamps for these two records are **synthetic, not OEM readings**. The manufacturer/models are placeholders for the app's current selected vehicles, not a verified VIN-specific configuration. Do not interpret the telemetry as actual health or driving data.
 
-The API exposes the **same snake_case field names and types** as the JLR vehicle rows. The frontend should use one vehicle model and ordinary empty/null formatting. No UI-level mock/demo badges, special endpoints, or brand-dependent rendering branches are needed.
+The API exposes the **same snake_case field names and types** for all rows, including the explicit `connection_status` field. The frontend should use one vehicle model and ordinary empty/null formatting. No UI-level mock/demo badges, special endpoints, or brand-dependent rendering branches are needed.
 
 For accurate provenance, `source='local'` is returned to consumers rather than falsely representing an authenticated BMW/Audi feed. This is ordinary transport metadata and does not require a visible badge.
 
@@ -44,6 +46,7 @@ The test checks the exact column shape of the existing JLR SELECT, stable IDs, f
       "model": "X7",
       "model_year": 2026,
       "source": "local",
+      "connection_status": "connected",
       "range_km": 645,
       "fuel_percent": 73,
       "soc_percent": null,
@@ -55,6 +58,7 @@ The test checks the exact column shape of the existing JLR SELECT, stable IDs, f
       "model": "S e-tron GT",
       "model_year": 2026,
       "source": "local",
+      "connection_status": "connected",
       "range_km": 329,
       "fuel_percent": null,
       "soc_percent": 68,
