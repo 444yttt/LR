@@ -167,7 +167,7 @@ async function ownerSetup(t, kid) {
 }
 
 /** D1 stub with a JLR row (synthetic values) that records every statement, so tests can assert reads only. */
-function jlrDb({ enabled = 1, snapshot = { fetched_at: new Date(Date.now() - 3600000).toISOString(), data_status: 'fresh', range_km: 500, fuel_percent: 60, health_status: 'good', last_drive_at: null, last_drive_verified: 0 } } = {}) {
+function jlrDb({ enabled = 1, snapshot = { fetched_at: new Date(Date.now() - 3600000).toISOString(), data_status: 'fresh', range_km: 500, fuel_percent: 60, odometer_km: 12345, health_status: 'good', last_drive_at: null, last_drive_verified: 0 } } = {}) {
   const statements = [];
   return { statements, prepare(sql) {
     statements.push(sql);
@@ -199,21 +199,22 @@ test('GET /v1/vehicles: owner only; JLR row plus local X7 / S e-tron GT in the c
   assert.deepEqual(VEHICLE_IDS, ['range-l460', 'bmw-x7', 'audi-s-etron-gt']);
   const [rover, x7, etron] = body.vehicles;
   const keys = ['id', 'make', 'model', 'modelYear', 'displayName', 'source', 'connection', 'status', 'fetchedAt', 'lastDriveAt',
-    'lastDriveVerified', 'lastDriveTrust', 'rangeKm', 'fuelPercent', 'health', 'trips', 'electricRangeKm', 'socPercent'];
+    'lastDriveVerified', 'lastDriveTrust', 'rangeKm', 'fuelPercent', 'health', 'trips', 'electricRangeKm', 'socPercent', 'odometerKm'];
   for (const vehicle of body.vehicles) assert.deepEqual(Object.keys(vehicle), keys, vehicle.id);
   assert.equal(rover.source, 'jlr');
   assert.equal(rover.status, 'fresh');
   assert.equal(rover.rangeKm, 500);
+  assert.equal(rover.odometerKm, 12345);
   // #19's synthetic fixture values, mapped field for field.
   assert.deepEqual({ ...x7, fetchedAt: null, lastDriveAt: null, trips: null }, {
     id: 'bmw-x7', make: 'BMW', model: 'X7', modelYear: 2026, displayName: 'BMW X7', source: 'local', connection: 'connected',
     status: 'fresh', fetchedAt: null, lastDriveAt: null, lastDriveVerified: true, lastDriveTrust: 'owner-approved-unverified',
-    rangeKm: 645, fuelPercent: 73, health: 'good', trips: null, electricRangeKm: null, socPercent: null,
+    rangeKm: 645, fuelPercent: 73, health: 'good', trips: null, electricRangeKm: null, socPercent: null, odometerKm: 318,
   });
   assert.deepEqual({ ...etron, fetchedAt: null, lastDriveAt: null, trips: null }, {
     id: 'audi-s-etron-gt', make: 'Audi', model: 'S e-tron GT', modelYear: 2026, displayName: 'Audi S e-tron GT', source: 'local', connection: 'connected',
     status: 'fresh', fetchedAt: null, lastDriveAt: null, lastDriveVerified: true, lastDriveTrust: 'owner-approved-unverified',
-    rangeKm: 329, fuelPercent: null, health: 'good', trips: null, electricRangeKm: 329, socPercent: 68,
+    rangeKm: 329, fuelPercent: null, health: 'good', trips: null, electricRangeKm: 329, socPercent: 68, odometerKm: 4820,
   });
   for (const vehicle of [x7, etron]) assert.deepEqual(vehicle.trips, [vehicle.lastDriveAt]);
   assert.ok(Date.now() - Date.parse(etron.fetchedAt) < 36 * 3600000);
@@ -274,4 +275,46 @@ test('logs from the vehicles route carry no token or email', async t => {
     const line = call.arguments.join(' ');
     assert.ok(!line.includes(bad) && !line.includes('@example.com'));
   }
+});
+
+test('GET /v1/vehicles/:id/history: owner only, read-only, oldest first, time / level / odometer only', async t => {
+  const { env, sign } = await ownerSetup(t, 'history-key');
+  const statements = [];
+  // Synthetic readings (newest first, as D1 returns them for ORDER BY fetched_at DESC).
+  const rows = [
+    { fetched_at: '2026-11-03T00:00:00.000Z', fuel_percent: 80, soc_percent: null, odometer_km: 12645, range_km: 600, vin: 'x' },
+    { fetched_at: '2026-11-01T00:00:00.000Z', fuel_percent: 30, soc_percent: null, odometer_km: 12345 },
+  ];
+  let fail = false;
+  env.DB = { prepare(sql) {
+    statements.push(sql);
+    return { all: async () => { if (fail) throw new Error('no such table'); return { results: rows }; }, first: async () => null,
+      run: async () => { throw new Error('gateway must not write'); } };
+  } };
+  t.mock.method(console, 'log', () => {});
+  const get = (id, token) => worker.fetch(new Request('https://garage.example/v1/vehicles/' + id + '/history', { headers: token ? { Authorization: 'Bearer ' + token } : {} }), env);
+  assert.equal((await get('range-l460', null)).status, 401);
+  assert.equal((await get('range-l460', await sign('someone@example.com'))).status, 401);
+  assert.equal(statements.length, 0);
+  const token = await sign();
+  const res = await get('range-l460', token);
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('Cache-Control'), 'no-store');
+  const body = await res.json();
+  assert.deepEqual(body, { vehicleId: 'range-l460', points: [
+    { fetchedAt: '2026-11-01T00:00:00.000Z', fuelPercent: 30, socPercent: null, odometerKm: 12345 },
+    { fetchedAt: '2026-11-03T00:00:00.000Z', fuelPercent: 80, socPercent: null, odometerKm: 12645 },
+  ] });
+  assert.equal(statements.length, 1);
+  assert.match(statements[0], /^SELECT fetched_at,fuel_percent,soc_percent,odometer_km FROM snapshot_history/);
+  assert.match(statements[0], /LIMIT 400$/);
+  // Local fixture vehicles have no history: empty, and D1 is not queried.
+  for (const id of ['bmw-x7', 'audi-s-etron-gt']) assert.deepEqual(await (await get(id, token)).json(), { vehicleId: id, points: [] });
+  assert.equal(statements.length, 1);
+  // Unknown ids, other methods and malformed paths are 404.
+  for (const id of ['ferrari-296', 'range-rover', '..', 'RANGE-L460']) assert.equal((await get(id, token)).status, 404, id);
+  assert.equal((await worker.fetch(new Request('https://garage.example/v1/vehicles/range-l460/history', { method: 'POST', headers: { Authorization: 'Bearer ' + token } }), env)).status, 404);
+  // Table missing (migration not applied yet) or D1 down: 503, never invented points.
+  fail = true;
+  assert.equal((await get('range-l460', token)).status, 503);
 });

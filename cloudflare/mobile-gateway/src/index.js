@@ -140,7 +140,30 @@ function listEntry(row, options) {
     ...vehicleView(row, options),
     electricRangeKm: row.electric_range_km ?? null,
     socPercent: row.soc_percent ?? null,
+    // Latest odometer reading (D1 snapshot / local fixture row). The app may offer it, editable, in the refuel log.
+    odometerKm: numberOrNull(row.odometer_km),
   };
+}
+
+/** Most history points one response returns (the collector keeps at most 400 per vehicle). */
+export const HISTORY_LIMIT = 400;
+
+/**
+ * GET /v1/vehicles/:id/history: telemetry readings the collector appended on each successful collect (migration 0003),
+ * oldest first, for the app's fuel-economy estimate. Only time, level and odometer; no VIN, location, range or payload.
+ * Local fixture rows have a single synthetic reading and no history, so they return no points (and D1 is not queried).
+ */
+async function vehicleHistory(env, id) {
+  if (id !== JLR_VEHICLE_ID) return { vehicleId: id, points: [] };
+  const rows = await env.DB.prepare(`SELECT fetched_at,fuel_percent,soc_percent,odometer_km FROM snapshot_history
+    WHERE vehicle_id='range-l460' ORDER BY fetched_at DESC LIMIT ${HISTORY_LIMIT}`).all();
+  const points = rows.results.map(row => ({
+    fetchedAt: row.fetched_at,
+    fuelPercent: numberOrNull(row.fuel_percent),
+    socPercent: numberOrNull(row.soc_percent),
+    odometerKm: numberOrNull(row.odometer_km),
+  })).reverse();
+  return { vehicleId: id, points };
 }
 
 async function jlrSnapshot(env) {
@@ -160,7 +183,7 @@ async function vehicleList(env, now) {
   const trustUnverified = env.GARAGE_TRUST_UNVERIFIED_DRIVES === 'true';
   const rover = await env.DB.prepare(`SELECT v.id,v.make,v.model,v.model_year,v.display_name,v.enabled,
     s.fetched_at,s.last_drive_at,s.last_drive_verified,s.range_km,s.electric_range_km,s.fuel_percent,s.soc_percent,
-    s.health_status,s.data_status FROM vehicles v LEFT JOIN snapshots s ON s.vehicle_id=v.id WHERE v.id='range-l460'`).first();
+    s.odometer_km,s.health_status,s.data_status FROM vehicles v LEFT JOIN snapshots s ON s.vehicle_id=v.id WHERE v.id='range-l460'`).first();
   const jlr = rover?.enabled === 1 ? await jlrSnapshot(env) : null;
   const rows = combineVehicleRows(rover?.enabled === 1 ? [{ ...rover, source: 'jlr' }] : [], now);
   const vehicles = rows.filter(row => VEHICLE_IDS.includes(row.id)).map(row => row.id === JLR_VEHICLE_ID
@@ -175,7 +198,9 @@ export default {
     const read = request.method === 'GET' && url.pathname === '/v1/range-rover';
     const refresh = request.method === 'POST' && url.pathname === '/v1/range-rover/refresh';
     const list = request.method === 'GET' && url.pathname === '/v1/vehicles';
-    if (!read && !refresh && !list) return response({ error: 'not_found' }, 404);
+    const historyId = request.method === 'GET' ? /^\/v1\/vehicles\/([a-z0-9-]{1,40})\/history$/.exec(url.pathname)?.[1] : undefined;
+    const history = historyId !== undefined && VEHICLE_IDS.includes(historyId);
+    if (!read && !refresh && !list && !history) return response({ error: 'not_found' }, 404);
     if (!env.GARAGE_ISSUER || !env.GARAGE_JWKS_URL || !env.GARAGE_AUDIENCE || !env.GARAGE_OWNER_EMAIL || !env.DB) {
       return response({ error: 'unavailable' }, 503);
     }
@@ -188,6 +213,9 @@ export default {
     }
     if (list) {
       try { return response(await vehicleList(env, Date.now())); } catch { return response({ error: 'unavailable' }, 503); }
+    }
+    if (history) {
+      try { return response(await vehicleHistory(env, historyId)); } catch { return response({ error: 'unavailable' }, 503); }
     }
     if (refresh) {
       // Owner-triggered, read-only vehicle read through the collector's RPC entrypoint. The collector

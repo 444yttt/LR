@@ -340,6 +340,20 @@ export async function claimRun(db,id,minIntervalS){
   const last=await db.prepare("SELECT started_at FROM ingestion_runs WHERE vehicle_id='range-l460' ORDER BY started_at DESC LIMIT 1").first();
   return {claimed:false,retryAfterSeconds:retryAfterSeconds(last?.started_at,minIntervalS,Date.now())};
 }
+// Append-only telemetry history for the fuel-economy estimate: the same mapped values written to `snapshots`, one row
+// per successful collect, keyed by (vehicle_id, fetched_at) so writing the same reading twice is a no-op. No VIN, no
+// location, no raw payload. Capped per vehicle so the table cannot grow without bound (~1 year of daily collects).
+export const SNAPSHOT_HISTORY_LIMIT=400;
+export function historyStatements(db,vehicleId,fetchedAt,signals,limit=SNAPSHOT_HISTORY_LIMIT){
+  const values=[signals.fuelPercent,signals.odometerKm,signals.rangeKm,signals.soc,signals.electricRangeKm].map(v=>typeof v==='number'&&Number.isFinite(v)?v:null);
+  // A reading with no level and no odometer cannot contribute to an estimate.
+  if(values[0]===null&&values[1]===null&&values[3]===null)return [];
+  const insert=db.prepare(`INSERT OR IGNORE INTO snapshot_history(vehicle_id,fetched_at,fuel_percent,odometer_km,range_km,soc_percent,electric_range_km)
+    VALUES(?,?,?,?,?,?,?)`).bind(vehicleId,fetchedAt,...values);
+  const prune=db.prepare(`DELETE FROM snapshot_history WHERE vehicle_id=?
+    AND fetched_at NOT IN (SELECT fetched_at FROM snapshot_history WHERE vehicle_id=? ORDER BY fetched_at DESC LIMIT ?)`).bind(vehicleId,vehicleId,limit);
+  return [insert,prune];
+}
 export async function collect(env,{minIntervalS=SCHEDULED_MIN_INTERVAL_S}={}){
   assertConfigured(env);
   if(!env.DB)throw new Error('not_configured:DB');
@@ -408,11 +422,12 @@ export async function collect(env,{minIntervalS=SCHEDULED_MIN_INTERVAL_S}={}){
     const prune=env.DB.prepare(`DELETE FROM vehicle_trip_ends WHERE vehicle_id='range-l460'
       AND ended_at NOT IN (SELECT ended_at FROM vehicle_trip_ends
       WHERE vehicle_id='range-l460' ORDER BY ended_at DESC LIMIT 50)`);
+    const fetchedAt=now();
     const snapshot=env.DB.prepare(`INSERT INTO snapshots(vehicle_id,fetched_at,source,last_drive_at,last_drive_verified,data_status,payload_json,updated_at)
     VALUES(? ,?,'jlr',?,?,'fresh','{}',?)
     ON CONFLICT(vehicle_id) DO UPDATE SET fetched_at=excluded.fetched_at,source=excluded.source,last_drive_at=excluded.last_drive_at,
     last_drive_verified=excluded.last_drive_verified,data_status='fresh',error_code=NULL,updated_at=excluded.updated_at`)
-      .bind('range-l460',now(),end,verified,now());
+      .bind('range-l460',fetchedAt,end,verified,fetchedAt);
     const telemetry=env.DB.prepare(`UPDATE snapshots SET range_km=?,electric_range_km=?,fuel_percent=?,soc_percent=?,
       odometer_km=?,battery_12v_voltage=?,
       health_status=?,faults_count=?,maintenance_due_count=?,status_updated_at=?,health_updated_at=?,payload_json=?
@@ -423,6 +438,12 @@ export async function collect(env,{minIntervalS=SCHEDULED_MIN_INTERVAL_S}={}){
       JSON.stringify({status_available:!!status,diagnostics_available:!!diagnostics,ev_available:!!ev})
     );
     await env.DB.batch([history,prune,snapshot,telemetry]);
+    // Separate from the snapshot batch: a missing snapshot_history table (migration 0003 not applied yet) must not
+    // fail the collect. Uses only the values already mapped above; no extra JLR request.
+    try{
+      const readings=historyStatements(env.DB,'range-l460',fetchedAt,signals);
+      if(readings.length)await env.DB.batch(readings);
+    }catch{console.log('garage_history_failed');}
     await env.DB.prepare("UPDATE ingestion_runs SET status='complete',finished_at=?,page_count=?,journey_count=? WHERE id=?").bind(now(),pages,n,id).run();
     // Alerts are recorded only once after initial operator validation of source semantics.
     // Actual push delivery requires an explicit notifier integration; no silent claim of delivery.
