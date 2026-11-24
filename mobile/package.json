@@ -10,6 +10,7 @@
     "test": "node --experimental-strip-types --test test/*.test.ts && jest"
   },
   "dependencies": {
+    "@bacons/apple-targets": "4.0.6",
     "@expo-google-fonts/inter": "^0.4.2",
     "@react-native-async-storage/async-storage": "2.2.0",
     "expo": "~54.0.38",
@@ -29,6 +30,7 @@
     "react-native-worklets": "0.5.1"
   },
   "devDependencies": {
+    "@expo/prebuild-config": "54.0.9",
     "@testing-library/react-native": "^13.3.3",
     "@types/jest": "^29.5.14",
     "@types/react": "~19.1.10",

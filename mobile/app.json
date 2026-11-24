@@ -16,12 +16,18 @@
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "UIStatusBarStyle": "UIStatusBarStyleDarkContent"
+      },
+      "entitlements": {
+        "com.apple.security.application-groups": [
+          "group.studio.naus.garagemonitor"
+        ]
       }
     },
     "plugins": [
       "./plugins/withLocalNotifications",
       "expo-notifications",
-      "expo-secure-store"
+      "expo-secure-store",
+      "@bacons/apple-targets"
     ],
     "icon": "./assets/app-icon.png"
   }

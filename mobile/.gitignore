@@ -4,3 +4,5 @@ dist/
 ios/
 .env
 .env.*
+# Written by @bacons/apple-targets on every prebuild from expo-target.config.js
+targets/*/generated.entitlements
