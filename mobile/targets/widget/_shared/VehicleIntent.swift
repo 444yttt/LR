@@ -1,6 +1,23 @@
 import AppIntents
 import WidgetKit
 
+// This file must live in targets/widget/_shared so @bacons/apple-targets links it into BOTH the widget
+// extension and the main Nostos app. AppIntentConfiguration widgets are registered through the app's
+// App Intents metadata; if the intent is only in the extension, iOS does not show the widget in the gallery.
+// Build 42 shipped with this file in the widget target only; archive logs showed the app target
+// "Extracted no relevant App Intents symbols, skipping writing output".
+
+
+/// App vehicles in Garage order (src/garageModel.ts VEHICLES): ids and public display names only.
+enum VehicleCatalog {
+    static let all: [(id: String, name: String)] = [
+        ("range-rover", "Range Rover"),
+        ("bmw-x7", "BMW X7"),
+        ("audi-s-etron-gt", "Audi S e-tron GT"),
+        ("ferrari-296", "Ferrari 296"),
+    ]
+}
+
 /// A vehicle the widget can show. Options come from the fixed app catalog, so choosing one never needs the app or
 /// the network; its values come from the shared snapshot like every other widget.
 struct VehicleEntity: AppEntity {

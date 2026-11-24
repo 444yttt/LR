@@ -169,6 +169,24 @@ jobs:
             echo "DEVELOPMENT_TEAM must come from the APPLE_TEAM_ID secret at build time."
             exit 1
           fi
+          python3 - <<'PY'
+          import pathlib, sys
+          pbx = next(pathlib.Path("ios").glob("*.xcodeproj/project.pbxproj"))
+          text = pbx.read_text()
+          required = [
+              "NostosWidget.appex in Embed Foundation Extensions",
+              "PRODUCT_BUNDLE_IDENTIFIER = studio.naus.garagemonitor.widget",
+              'productType = "com.apple.product-type.app-extension"',
+          ]
+          missing = [item for item in required if item not in text]
+          if missing:
+              sys.exit("Prebuilt Xcode project is missing the widget target or Embed Foundation Extensions phase: " + "; ".join(missing))
+          print(f"{pbx}: widget target and Embed Foundation Extensions are present")
+          intent = pathlib.Path("targets/widget/_shared/VehicleIntent.swift")
+          if not intent.is_file() or "struct SelectVehicleIntent: WidgetConfigurationIntent" not in intent.read_text():
+              sys.exit("SelectVehicleIntent must live in targets/widget/_shared so the main app target links it")
+          print(f"{intent}: SelectVehicleIntent is in _shared")
+          PY
 
       - run: pod install
         working-directory: mobile/ios
@@ -272,6 +290,60 @@ jobs:
             -authenticationKeyPath "$HOME/private_keys/AuthKey_${ASC_KEY_ID}.p8" \
             -authenticationKeyID "$ASC_KEY_ID" \
             -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+
+      - name: Check widget is in the signed IPA
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          set -euo pipefail
+          ipa=$(find "$RUNNER_TEMP/nostos-export" -name '*.ipa' -print -quit)
+          test -n "$ipa"
+          python3 - "$ipa" <<'PY'
+          import plistlib, subprocess, sys, tempfile, zipfile
+          from pathlib import Path
+
+          ipa = Path(sys.argv[1])
+          with tempfile.TemporaryDirectory() as tmp:
+              with zipfile.ZipFile(ipa) as zf:
+                  zf.extractall(tmp)
+              apps = list(Path(tmp).glob("Payload/*.app"))
+              if len(apps) != 1:
+                  sys.exit(f"expected one Payload/*.app, found {apps}")
+              app = apps[0]
+              plugins = list((app / "PlugIns").glob("*.appex")) if (app / "PlugIns").is_dir() else []
+              print("app", app.name, "appexes", [p.name for p in plugins])
+              widget = app / "PlugIns" / "NostosWidget.appex"
+              if not widget.is_dir():
+                  sys.exit("signed IPA is missing Payload/*.app/PlugIns/NostosWidget.appex")
+              info = plistlib.loads((widget / "Info.plist").read_bytes())
+              point = (info.get("NSExtension") or {}).get("NSExtensionPointIdentifier")
+              bundle = info.get("CFBundleIdentifier")
+              version = info.get("CFBundleShortVersionString")
+              build = info.get("CFBundleVersion")
+              print(f"widget Info.plist bundle={bundle!r} version={version!r} build={build!r} extension={point!r}")
+              if point != "com.apple.widgetkit-extension":
+                  sys.exit("widget NSExtensionPointIdentifier must be com.apple.widgetkit-extension")
+              if bundle != "studio.naus.garagemonitor.widget":
+                  sys.exit("widget CFBundleIdentifier must be studio.naus.garagemonitor.widget")
+              if version != "1.0.0":
+                  sys.exit("widget CFBundleShortVersionString must be 1.0.0")
+
+              def entitlements(path: Path) -> dict:
+                  raw = subprocess.check_output(["codesign", "-d", "--entitlements", "-", "--xml", str(path)], stderr=subprocess.DEVNULL)
+                  # codesign may write a text plist or xml
+                  try:
+                      return plistlib.loads(raw)
+                  except Exception:
+                      sys.exit(f"could not parse entitlements for {path.name} (type {raw[:16]!r})")
+
+              # Print only entitlement keys and the application-groups value. No signing material.
+              for label, path in (("app", app), ("widget", widget)):
+                  ents = entitlements(path)
+                  groups = ents.get("com.apple.security.application-groups")
+                  print(f"{label} application-identifier={ents.get('application-identifier')!r} application-groups={groups!r} keys={sorted(ents)}")
+                  if "group.studio.naus.garagemonitor" not in (groups or []):
+                      sys.exit(f"{label} is missing App Group group.studio.naus.garagemonitor")
+          print("IPA contains the WidgetKit appex with the expected bundle id, extension point, and App Group")
+          PY
 
       - name: Upload to App Store Connect
         if: github.event_name == 'workflow_dispatch' && inputs.upload
