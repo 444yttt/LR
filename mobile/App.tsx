@@ -3,11 +3,13 @@ import { useFonts, Inter_400Regular, Inter_500Medium, Inter_600SemiBold } from '
 import { GarageApp } from './src/GarageApp';
 import { DeepLinks } from './src/deepLinks';
 import { useGarage } from './src/useGarage';
+import { WidgetSync } from './src/widget';
 import { page } from './src/ui/theme';
 
 function Live() {
   const data = useGarage();
-  return <GarageApp data={data}><DeepLinks /></GarageApp>;
+  // WidgetSync writes the iOS widget's App Group snapshot from the live session only; demo builds never write it.
+  return <GarageApp data={data}><DeepLinks /><WidgetSync /></GarageApp>;
 }
 
 // Demo/preview builds only (exactly EXPO_PUBLIC_DEMO_DATA=1). Expo inlines the variable at build time, so in
