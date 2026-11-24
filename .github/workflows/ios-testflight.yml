@@ -186,6 +186,28 @@ jobs:
           if not intent.is_file() or "struct SelectVehicleIntent: WidgetConfigurationIntent" not in intent.read_text():
               sys.exit("SelectVehicleIntent must live in targets/widget/_shared so the main app target links it")
           print(f"{intent}: SelectVehicleIntent is in _shared")
+          if "CODE_SIGN_ENTITLEMENTS = Nostos/Nostos.entitlements" not in text:
+              sys.exit("App target is missing CODE_SIGN_ENTITLEMENTS = Nostos/Nostos.entitlements")
+          if "CODE_SIGN_ENTITLEMENTS = ../targets/widget/generated.entitlements" not in text:
+              sys.exit("Widget target is missing CODE_SIGN_ENTITLEMENTS = ../targets/widget/generated.entitlements")
+          print("CODE_SIGN_ENTITLEMENTS is set for the app and the widget")
+          PY
+          python3 - <<'PY'
+          import pathlib, plistlib, sys
+          group = "group.studio.naus.garagemonitor"
+          key = "com.apple.security.application-groups"
+          sources = [
+              pathlib.Path("ios/Nostos/Nostos.entitlements"),
+              pathlib.Path("targets/widget/generated.entitlements"),
+          ]
+          for path in sources:
+              if not path.is_file():
+                  sys.exit(f"prebuild entitlements file is missing: {path}")
+              ents = plistlib.loads(path.read_bytes())
+              groups = ents.get(key)
+              print(f"{path}: application-groups={groups!r} keys={sorted(ents)}")
+              if group not in (groups or []):
+                  sys.exit(f"{path} does not declare {group}")
           PY
 
       - run: pod install
@@ -253,6 +275,45 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
             CURRENT_PROJECT_VERSION="${{ github.run_number }}"
+
+      # Unsigned archives skip ProcessProductPackaging, so exportArchive would not
+      # see application-groups and would sign a default App Store entitlement set.
+      # Copy the prebuild entitlements into the archive as xcent so export requests
+      # the App Group. -allowProvisioningUpdates may then attach it; if the portal
+      # has no group, export or the IPA check will fail and we must not upload.
+      - name: Put App Group entitlements in the unsigned archive
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, plistlib, shutil, sys
+          from pathlib import Path
+
+          archive = Path(os.environ["RUNNER_TEMP"]) / "Nostos.xcarchive"
+          app = archive / "Products/Applications/Nostos.app"
+          widget = app / "PlugIns" / "NostosWidget.appex"
+          group = "group.studio.naus.garagemonitor"
+          key = "com.apple.security.application-groups"
+          sources = (
+              ("app", app, Path("ios/Nostos/Nostos.entitlements")),
+              ("widget", widget, Path("targets/widget/generated.entitlements")),
+          )
+          for label, dest, src in sources:
+              if not dest.is_dir():
+                  sys.exit(f"unsigned archive is missing {dest}")
+              if not src.is_file():
+                  sys.exit(f"prebuild entitlements file is missing: {src}")
+              ents = plistlib.loads(src.read_bytes())
+              groups = ents.get(key)
+              print(f"{src}: application-groups={groups!r} keys={sorted(ents)}")
+              if group not in (groups or []):
+                  sys.exit(f"{src} does not declare {group}")
+              xcent = dest / "archived-expanded-entitlements.xcent"
+              existing = list(dest.glob("*.xcent"))
+              print(f"{label} archive xcent before copy: {[p.name for p in existing]}")
+              shutil.copyfile(src, xcent)
+              print(f"wrote {xcent}")
+          PY
 
       - name: Export IPA
         if: github.event_name == 'workflow_dispatch'
@@ -328,20 +389,31 @@ jobs:
                   sys.exit("widget CFBundleShortVersionString must be 1.0.0")
 
               def entitlements(path: Path) -> dict:
-                  raw = subprocess.check_output(["codesign", "-d", "--entitlements", "-", "--xml", str(path)], stderr=subprocess.DEVNULL)
-                  # codesign may write a text plist or xml
+                  raw = subprocess.check_output(
+                      ["codesign", "-d", "--entitlements", ":-", "--xml", str(path)],
+                      stderr=subprocess.DEVNULL,
+                  )
+                  if raw.startswith(b"\xfa\xde\x0c\xc0"):
+                      raw = raw[raw.find(b"<?xml"):] if b"<?xml" in raw else raw[8:]
                   try:
                       return plistlib.loads(raw)
                   except Exception:
                       sys.exit(f"could not parse entitlements for {path.name} (type {raw[:16]!r})")
 
-              # Print only entitlement keys and the application-groups value. No signing material.
+              # Print both binaries first. No signing material, only keys and these values.
+              missing = []
               for label, path in (("app", app), ("widget", widget)):
                   ents = entitlements(path)
                   groups = ents.get("com.apple.security.application-groups")
-                  print(f"{label} application-identifier={ents.get('application-identifier')!r} application-groups={groups!r} keys={sorted(ents)}")
+                  print(
+                      f"{label} application-identifier={ents.get('application-identifier')!r} "
+                      f"application-groups={groups!r} get-task-allow={ents.get('get-task-allow')!r} "
+                      f"keys={sorted(ents)}"
+                  )
                   if "group.studio.naus.garagemonitor" not in (groups or []):
-                      sys.exit(f"{label} is missing App Group group.studio.naus.garagemonitor")
+                      missing.append(label)
+              if missing:
+                  sys.exit("signed IPA is missing App Group group.studio.naus.garagemonitor on: " + ", ".join(missing))
           print("IPA contains the WidgetKit appex with the expected bundle id, extension point, and App Group")
           PY
 
