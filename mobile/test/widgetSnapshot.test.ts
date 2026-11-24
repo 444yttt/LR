@@ -185,6 +185,6 @@ test('SelectVehicleIntent is in targets/widget/_shared so the main app links it'
   const shared = swiftFiles.filter(path => path.includes('/_shared/') && path.endsWith('VehicleIntent.swift'));
   assert.equal(shared.length, 1, 'VehicleIntent.swift must live in targets/widget/_shared, not the widget-only folder');
   const intent = readFileSync(shared[0], 'utf8');
-  assert.match(intent, /struct SelectVehicleIntent: WidgetConfigurationIntent/);
+  assert.match(intent, /@available\(iOS 17\.0, \*\)\s*struct SelectVehicleIntent: WidgetConfigurationIntent/);
   assert.doesNotMatch(intent, /URLSession|URLRequest|Keychain|token/i);
 });
