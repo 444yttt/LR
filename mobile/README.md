@@ -40,6 +40,14 @@ The gateway in `cloudflare/mobile-gateway` reads the existing D1 database. Confi
 
 State presentation lives in `src/garageModel.ts` and is covered by `test/garageModel.test.ts`.
 
+## Home-screen widget
+
+`targets/widget` is a WidgetKit extension (small and medium Home Screen widgets, plus lock-screen circular, rectangular and inline), built by [`@bacons/apple-targets`](https://github.com/EvanBacon/expo-apple-targets) 4.0.6 during `expo prebuild` (bundle id `studio.naus.garagemonitor.widget`, iOS 17+). It shows one vehicle: its name, Fuel or Battery percent (the same rule as the vehicle screen), range, when it was last updated, and a stale or sign-in-expired marker. Tapping it opens `garage-monitor://vehicle/<id>`. Edit Widget → Vehicle pins a vehicle; left empty, the widget follows the vehicle last opened in the app, else the first connected vehicle with a report, else the Range Rover.
+
+The widget makes no network requests and reads no credentials. The app (`src/widget.tsx`, production entry only) writes a minimal JSON snapshot to the App Group `group.studio.naus.garagemonitor` after each refresh, a failed refresh that keeps earlier values, and a sign-in expiry, then reloads the widget. Sign-out removes it. The contract is in `src/widgetSnapshot.ts`: names from the app catalog, a level percent, range, report time, stale / expired flags. It never contains a VIN, location, trips or last-drive times, odometer, tokens, or raw gateway data. Demo builds never write it.
+
+A signed build needs the bundle id `studio.naus.garagemonitor.widget`, the App Groups capability with `group.studio.naus.garagemonitor` on both bundle ids, and App Store / Ad Hoc profiles for both targets. Simulator builds (`CODE_SIGNING_ALLOWED=NO`) need none of these.
+
 ## Deep links
 
 `garage-monitor://` opens the Garage. `garage-monitor://vehicle/<range-rover|bmw-x7|audi-s-etron-gt|ferrari-296>[/status|/connection|/drives|/specs]`, `garage-monitor://drives` (Range Rover) and `garage-monitor://notifications` open those screens. `garage-monitor://auth` stays the OAuth redirect and is never routed to a screen.
