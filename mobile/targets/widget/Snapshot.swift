@@ -50,16 +50,6 @@ struct WidgetVehicle: Codable {
     let authExpired: Bool
 }
 
-/// App vehicles in Garage order (src/garageModel.ts VEHICLES): ids and public display names only.
-enum VehicleCatalog {
-    static let all: [(id: String, name: String)] = [
-        ("range-rover", "Range Rover"),
-        ("bmw-x7", "BMW X7"),
-        ("audi-s-etron-gt", "Audi S e-tron GT"),
-        ("ferrari-296", "Ferrari 296"),
-    ]
-}
-
 /// Same copy and thresholds as relativeTime() in src/garageModel.ts.
 func relativeTime(_ then: Date, now: Date) -> String? {
     let age = now.timeIntervalSince(then)

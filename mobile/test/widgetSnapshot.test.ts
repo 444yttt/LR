@@ -149,8 +149,15 @@ test('content key ignores the write time only', () => {
 
 // The Swift widget is not compiled on Linux. These checks keep its contract strings and the relative-time copy in step.
 const root = new URL('..', import.meta.url).pathname;
-const swift = readdirSync(join(root, 'targets/widget')).filter(name => name.endsWith('.swift'))
-  .map(name => readFileSync(join(root, 'targets/widget', name), 'utf8')).join('\n');
+function swiftSources(dir: string): string[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) return entry.name === 'fonts' ? [] : swiftSources(path);
+    return entry.name.endsWith('.swift') ? [path] : [];
+  });
+}
+const swiftFiles = swiftSources(join(root, 'targets/widget'));
+const swift = swiftFiles.map(path => readFileSync(path, 'utf8')).join('\n');
 
 test('app, widget target, and Swift reader agree on the App Group, key, and schema version', () => {
   const app = JSON.parse(readFileSync(join(root, 'app.json'), 'utf8')).expo;
@@ -173,4 +180,11 @@ test('Swift relative time mirrors relativeTime() thresholds', () => {
   assert.equal(relativeTime(now - 44_000, now), 'just now');
   assert.match(swift, /age < 45\b/);
   assert.match(swift, /age < -300\b/);
+});
+test('SelectVehicleIntent is in targets/widget/_shared so the main app links it', () => {
+  const shared = swiftFiles.filter(path => path.includes('/_shared/') && path.endsWith('VehicleIntent.swift'));
+  assert.equal(shared.length, 1, 'VehicleIntent.swift must live in targets/widget/_shared, not the widget-only folder');
+  const intent = readFileSync(shared[0], 'utf8');
+  assert.match(intent, /@available\(iOS 17\.0, \*\)\s*struct SelectVehicleIntent: WidgetConfigurationIntent/);
+  assert.doesNotMatch(intent, /URLSession|URLRequest|Keychain|token/i);
 });
