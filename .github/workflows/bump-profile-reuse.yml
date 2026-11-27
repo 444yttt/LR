@@ -1,0 +1,51 @@
+name: Prepare Bump profile with existing public certificate
+on:
+  push:
+    branches: [garage-monitor/ios-ad-hoc]
+    paths:
+      - 'bump-debug/**'
+      - 'existing-ci-public-key.pem'
+      - '.github/workflows/bump-profile-reuse.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: bump-existing-wildcard-profile
+  cancel-in-progress: false
+jobs:
+  profile:
+    if: ${{ github.repository == '444yttt/LR' && github.ref == 'refs/heads/garage-monitor/ios-ad-hoc' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            bump-debug/**
+            existing-ci-public-key.pem
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Install profile verification dependency
+        run: python3 -m pip install --disable-pip-version-check cryptography==50.0.0
+      - name: Check certificate and bounded profile-write contracts
+        run: |
+          python3 -m unittest discover -s bump-debug/tests -p test_lr_profile_reuse.py -v
+          python3 -m unittest discover -s bump-debug/tests -p test_existing_wildcard.py -v
+      - name: Reuse existing wildcard registration with validated existing certificate
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+          ASC_KEY_BASE64: ${{ secrets.ASC_KEY_BASE64 }}
+        run: python3 bump-debug/ci/lr-profile-reuse.py --helper-directory bump-debug/ci --public-key existing-ci-public-key.pem
+      - name: Save public validation receipt
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: Bump-profile-readiness-${{ github.sha }}
+          path: bump-public/
+          retention-days: 7
+          if-no-files-found: error
