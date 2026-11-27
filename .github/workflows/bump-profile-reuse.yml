@@ -1,11 +1,5 @@
 name: Prepare Bump profile with existing public certificate
 on:
-  push:
-    branches: [garage-monitor/ios-ad-hoc]
-    paths:
-      - 'bump-debug/**'
-      - 'existing-ci-public-key.pem'
-      - '.github/workflows/bump-profile-reuse.yml'
   workflow_dispatch:
 permissions:
   contents: read

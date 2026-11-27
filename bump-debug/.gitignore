@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+bump-public/
+output/
+*.p12
+*.p8
+*.ipa
+*.mobileprovision
