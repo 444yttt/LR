@@ -1,0 +1,32 @@
+name: Check existing Bump signing asset availability
+on:
+  push:
+    branches: [garage-monitor/ios-ad-hoc]
+    paths: ['.github/workflows/bump-existing-check.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  availability:
+    if: ${{ github.repository == '444yttt/LR' && github.ref == 'refs/heads/garage-monitor/ios-ad-hoc' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Report presence of known signing configuration only
+        env:
+          HAS_P12: ${{ secrets.IOS_P12_BASE64 != '' }}
+          HAS_P12_PASSWORD: ${{ secrets.IOS_P12_PASSWORD != '' }}
+          HAS_ADHOC_PROFILE: ${{ secrets.IOS_AD_HOC_PROFILE_BASE64 != '' }}
+          HAS_APPSTORE_PROFILE: ${{ secrets.IOS_APP_STORE_PROFILE_BASE64 != '' }}
+          HAS_ASC_KEY_ID: ${{ secrets.ASC_KEY_ID != '' }}
+          HAS_ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID != '' }}
+          HAS_ASC_RAW_KEY: ${{ secrets.ASC_PRIVATE_KEY != '' }}
+          HAS_ASC_BASE64_KEY: ${{ secrets.ASC_KEY_BASE64 != '' }}
+          HAS_TEAM: ${{ secrets.APPLE_TEAM_ID != '' }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          names = ('HAS_P12', 'HAS_P12_PASSWORD', 'HAS_ADHOC_PROFILE', 'HAS_APPSTORE_PROFILE',
+                   'HAS_ASC_KEY_ID', 'HAS_ASC_ISSUER_ID', 'HAS_ASC_RAW_KEY', 'HAS_ASC_BASE64_KEY', 'HAS_TEAM')
+          print(json.dumps({name: os.environ.get(name) == 'true' for name in names}, sort_keys=True))
+          PY
